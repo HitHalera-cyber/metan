@@ -1,0 +1,30 @@
+0                         RASHET N   1
+ P= 0.1000E+07 ALFA=  0.80 KM=  3.20 BETA=1882.4 Ms= 0.2669E-01 Mok= 0.2033E-01 Mgor= 0.6355E-02 Vgor=  34.8 Vok=  54.6 ROg=   6.5 ROok=  12.9 Vokr=  45.3 Vcmw=  55.7 Mcmw= 0.2259E-02
+ JZ=  4 JZ1=  6 JA=   9 JA1= 15 JA2= 18 JA3= 12 JC=  6 JN= 22 IC= 45 IC1= 29 IC2= 10 IN= 46
+ Dks= 0.2400E-01 Lks= 0.1500E-01 Lkd= 0.3896E-01 Dkr= 0.8000E-02 tgY=   0.6 Dprk= 0.1200E-01 Lprk= 0.1000E-01 Dook= 0.2000E-01 DELOK= 0.4000E-03 DOGOR= 0.8000E-02 DELGOR= 0.1000E-02 Dcmw= 0.2000E-02 Lpriw= 0.2087E+00 Fod= 0.2512E+02 Fcmb= 0.3140E+01 Fgor= 0.2512E+02 Kwosp= 0.1111E+00
+                         NITER=1000
+ ************* KOEF Fkomp (OK) = 0.98333***********
+0                         RASHET N   2
+ P= 0.1000E+07 ALFA=  1.00 KM=  4.00 BETA=1809.3 Ms= 0.2777E-01 Mok= 0.2221E-01 Mgor= 0.5553E-02 Vgor=  30.4 Vok=  59.7 ROg=   6.5 ROok=  12.9 Vokr=  39.6 Vcmw=  60.9 Mcmw= 0.2468E-02
+ JZ=  4 JZ1=  6 JA=   9 JA1= 15 JA2= 18 JA3= 12 JC=  6 JN= 22 IC= 45 IC1= 29 IC2= 10 IN= 46
+ Dks= 0.2400E-01 Lks= 0.1500E-01 Lkd= 0.3896E-01 Dkr= 0.8000E-02 tgY=   0.6 Dprk= 0.1200E-01 Lprk= 0.1000E-01 Dook= 0.2000E-01 DELOK= 0.4000E-03 DOGOR= 0.8000E-02 DELGOR= 0.1000E-02 Dcmw= 0.2000E-02 Lpriw= 0.2087E+00 Fod= 0.2512E-04 Fcmb= 0.3140E-05 Fgor= 0.2512E-04 Kwosp= 0.1111E+00
+                         NITER=1000
+ ************* KOEF Fkomp (OK) = 0.96972***********
+0                         RASHET N   3
+ P= 0.1000E+07 ALFA=  1.20 KM=  4.80 BETA=1750.0 Ms= 0.2871E-01 Mok= 0.2376E-01 Mgor= 0.4950E-02 Vgor=  27.1 Vok=  63.8 ROg=   6.5 ROok=  12.9 Vokr=  35.3 Vcmw=  65.1 Mcmw= 0.2640E-02
+ JZ=  4 JZ1=  6 JA=   9 JA1= 15 JA2= 18 JA3= 12 JC=  6 JN= 22 IC= 45 IC1= 29 IC2= 10 IN= 46
+ Dks= 0.2400E-01 Lks= 0.1500E-01 Lkd= 0.3896E-01 Dkr= 0.8000E-02 tgY=   0.6 Dprk= 0.1200E-01 Lprk= 0.1000E-01 Dook= 0.2000E-01 DELOK= 0.4000E-03 DOGOR= 0.8000E-02 DELGOR= 0.1000E-02 Dcmw= 0.2000E-02 Lpriw= 0.2087E+00 Fod= 0.2512E-04 Fcmb= 0.3140E-05 Fgor= 0.2512E-04 Kwosp= 0.1111E+00
+                         NITER=1000
+ ************* KOEF Fkomp (GOR) = 0.99708 **********
+0                         RASHET N   4
+ P= 0.1000E+07 ALFA=  1.40 KM=  5.60 BETA=1697.8 Ms= 0.2959E-01 Mok= 0.2511E-01 Mgor= 0.4484E-02 Vgor=  24.6 Vok=  67.4 ROg=   6.5 ROok=  12.9 Vokr=  31.9 Vcmw=  68.8 Mcmw= 0.2790E-02
+ JZ=  4 JZ1=  6 JA=   9 JA1= 15 JA2= 18 JA3= 12 JC=  6 JN= 22 IC= 45 IC1= 29 IC2= 10 IN= 46
+ Dks= 0.2400E-01 Lks= 0.1500E-01 Lkd= 0.3896E-01 Dkr= 0.8000E-02 tgY=   0.6 Dprk= 0.1200E-01 Lprk= 0.1000E-01 Dook= 0.2000E-01 DELOK= 0.4000E-03 DOGOR= 0.8000E-02 DELGOR= 0.1000E-02 Dcmw= 0.2000E-02 Lpriw= 0.2087E+00 Fod= 0.2512E-04 Fcmb= 0.3140E-05 Fgor= 0.2512E-04 Kwosp= 0.1111E+00
+                         NITER=1000
+ ************* KOEF Fkomp (GOR) = 1.00000 **********
+0                         RASHET N   5
+ P= 0.1000E+07 ALFA=  1.60 KM=  6.40 BETA=1649.8 Ms= 0.3045E-01 Mok= 0.2634E-01 Mgor= 0.4115E-02 Vgor=  22.5 Vok=  70.7 ROg=   6.5 ROok=  12.9 Vokr=  29.3 Vcmw=  72.2 Mcmw= 0.2926E-02
+ JZ=  4 JZ1=  6 JA=   9 JA1= 15 JA2= 18 JA3= 12 JC=  6 JN= 22 IC= 45 IC1= 29 IC2= 10 IN= 46
+ Dks= 0.2400E-01 Lks= 0.1500E-01 Lkd= 0.3896E-01 Dkr= 0.8000E-02 tgY=   0.6 Dprk= 0.1200E-01 Lprk= 0.1000E-01 Dook= 0.2000E-01 DELOK= 0.4000E-03 DOGOR= 0.8000E-02 DELGOR= 0.1000E-02 Dcmw= 0.2000E-02 Lpriw= 0.2087E+00 Fod= 0.2512E-04 Fcmb= 0.3140E-05 Fgor= 0.2512E-04 Kwosp= 0.1111E+00
+                         NITER=1000
+ ************* KOEF Fkomp (GOR) = 1.00000 **********

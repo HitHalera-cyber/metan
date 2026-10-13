@@ -1,0 +1,39 @@
+name: tests-and-windows-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+
+  windows-exe:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan metan_gui.pyw
+      - name: Smoke test of the built exe
+        shell: pwsh
+        run: |
+          Start-Process -Wait -FilePath dist\Metan\Metan.exe -ArgumentList '--cli','-q','--set','NVARM=1','--set','NMAX=30','-o','smoke'
+          if (-not (Test-Path smoke\shi10.dat)) { throw "Metan.exe did not produce shi10.dat" }
+          Get-Content smoke\shi10.dat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metan-windows
+          path: dist/Metan

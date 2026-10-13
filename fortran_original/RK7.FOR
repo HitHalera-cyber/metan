@@ -1,0 +1,248 @@
+
+      SUBROUTINE BOUND(N1,N2,N3,A)
+      DIMENSION  A(N1,N2,N3)
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      JA17=JA+1
+      JA18=JA1-1
+      RL=1.
+      DO 10 J=JA17,JN 
+      IL=IMIN(J) 
+      IF(J.EQ.JA3) IL=IC2+1 
+      DO 10 K=3,10
+      IF(J.GT.JA18.AND.J.LE.JA2) GO TO 10
+C      IF(J.GE.JZ1.AND.J.LE.JA) GO TO 10
+      A(IL-1,J,K)=A(IL,J,K)
+   10 CONTINUE
+      DO 11 J=JA,JNM
+      IL=IMIN(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.GT.JA1.AND.J.LT.JA2) GO TO 11
+C      IF(J.GE.JZ1.AND.J.LE.JA) GO TO 11
+      WX=(A(IL,J,NF)-A(IL-1,J,NF))/(R(J)*X1(IL))**2.
+      WY=A(IL,J,NW)*(A(IL-1,J,NRO3)/6.+(A(IL,J,NRO3)-A(IL-1,J,NRO3))/8.)
+      WZ=A(IL-1,J,NRO3)/3.+5.*(A(IL,J,NRO3)-A(IL-1,J,NRO3))/24.
+      A(IL-1,J,NW)=-1.*(WX+WY)/WZ
+      IF(A(IL-1,J,NW).GE.1.E+14) A(IL-1,J,NW)=1.E+14
+      IF(A(IL-1	,J,NW).LE.-1.E+14) A(IL-1,J,NW)=-1.E+14
+      IF(NITER.LE.NPRINT)  A(IL-1,J,NW)=0.
+   11 CONTINUE
+      DO 501 J=JZ,JZ1
+      WX=(A(2,J,NF)-A(1,J,NF))/(R(J)*X1(2))**2.
+      WY=A(2,J,NW)*(A(1,J,NRO3)/6.+(A(2,J,NRO3)-A(1,J,NRO3))/8.)
+      WZ=A(1,J,NRO3)/3.+5.*(A(2,J,NRO3)-A(1,J,NRO3))/24.
+      A(1,J,NW)=-1.*(WX+WY)/WZ
+      IF(A(1,J,NW).GE.1.E+14) A(1,J,NW)=1.E+14
+      IF(A(1,J,NW).LE.-1.E+14) A(1,J,NW)=-1.E+14
+      IF(NITER.LE.NPRINT.AND.NVAR.EQ.1) A(1,J,NW)=0.
+ 501  CONTINUE
+      JZ17=JZ+1
+      JZ18=JZ1-1
+      DO 509 J=JZ17,JZ18
+      DO 509 K=3,10
+      A(1,J,K)=A(2,J,K)
+  509 CONTINUE
+      DO 30 J=JC1,JB
+      DO 30 K=3,10
+      KK=IMAX(J)+1
+      A(KK,J,K)= A(KK,J-1,K)
+ 30   CONTINUE
+      DO 131 K=3,10
+C      A(IC1-1,JB,K)=A(IC1-1,JB-1,K)
+C      A(IC-1,JC1,K)=A(IC-1,JC,K)
+ 131  CONTINUE
+      DO 31 J=JC1,JB
+      DX2=X2(J)-X2(J-1)
+      KK=IMAX(J)+1
+      WK=1.
+      WX=A(KK,J-1,NF)/DX2/DX2
+      WY=A(KK,J-1,NW)*(R(J)-WK*DX2)*(A(KK,J,NRO3)*(R(J)/6.-WK*DX2/8.)+
+     *(A(KK,J-1,NRO3)-A(KK,J,NRO3))*(R(J)/8.-WK*DX2/10.))
+      WZ=R(J)*(A(KK,J,NRO3)*(R(J)/3.-5.*WK*DX2/24.)+(A(KK,J-1,NRO3)-
+     *A(KK,J,NRO3))*(5.*R(J)/24.-3.*WK*DX2/20.)) 
+      A(KK,J,NW)=-1.*(WX+WY)/WZ
+      IF(NITER.LE.NPRINT)  A(KK,J,NW)=0.
+      IF(A(KK,J,NW).GE.1.E+14) A(KK,J,NW)=1.E+14
+      IF(A(KK,J,NW).LE.-1.E+14) A(KK,J,NW)=-1.E+14
+   31 CONTINUE
+C      DO 3077 J=JC1,JB
+C      DO 3077 K=3,10
+C      IF(J.NE.JC1.OR.J.NE.JB) GO TO 3078
+C      KK=IMAX(J)+2
+C      A(KK,J,K)=A(KK,J-1,K)
+C 3078 CONTINUE
+C 3077 CONTINUE
+      GO TO 3078
+      DO 3001 J=JC,JN
+ 305  KK=IMAX(J)+1
+      DX2=X2(J)-X2(J-1)
+      WK=1.
+      WX=A(KK,J-1,NF)/DX2/DX2
+      WY=A(KK,J-1,NW)*(R(J)-WK*DX2)*(A(KK,J,NRO3)*(R(J)/6.-WK*DX2/8.)+
+     *(A(KK,J-1,NRO3)-A(KK,J,NRO3))*(R(J)/8.-WK*DX2/10.))
+      WZ=R(J)*(A(KK,J,NRO3)*(R(J)/3.-5.*WK*DX2/24.)+(A(KK,J-1,NRO3)-
+     *A(KK,J,NRO3))*(5.*R(J)/24.-3.*WK*DX2/20.))
+      A(KK,J,NW)=-1.*(WX+WY)/WZ
+      IF(NITER.LE.NPRINT) A(KK,J,NW)=0.
+      IF(A(KK,J,NW).GE.1.E+14) A(KK,J,NW)=1.E+14
+      IF(A(KK,J,NW).LE.-1.E+14) A(KK,J,NW)=-1.E+14
+ 3009 CONTINUE
+ 3001 CONTINUE
+ 3078 CONTINUE
+      DX1=X1(IC2)-X1(IC2-1)
+      DO 101 I=2,IC2
+      DO 101 K=3,10
+      A(I,JA3,K)=A(I,JA3-1,K)
+  101 CONTINUE
+      DX2=X2(JA3)-X2(JA3-1)
+      WK=1.
+      IC17=IC2-1
+      DO 141 I=2,IC17
+      Z=A(I,JA3,NW)
+      WX=(A(I,JA3-1,NF)-A(I,JA3,NF))/(DX2*DX2)
+      WY=A(I,JA3-1,NW)*(R(JA3)-WK*DX2)*(A(I,JA3,NRO3)*
+     * (R(JA3)/6.-WK*DX2/8.)
+     *+(A(I,JA3-1,NRO3)-A(I,JA3,NRO3))*(R(JA3)/8.-WK*DX2/10.))
+      WZ=R(JA3)*(A(I,JA3,NRO3)*(R(JA3)/3.-5.*WK*DX2/24.)+
+     * (A(I,JA3-1,NRO3)-
+     *A(I,JA3,NRO3))*(5.*R(JA3)/24.-3.*WK*DX2/20.))
+      A(I,JA3,NW)=-1.*(WX+WY)/WZ
+      IF(NITER.LE.NPRINT) A(I,JA3,NW)=0.
+      IF(A(I,JA3,NW).GT.1.E+14) A(I,JA3,NW)=1.E+14
+      IF(A(I,JA3,NW).LT.-1.E+14) A(I,JA3,NW)=-1.E+14
+  141 CONTINUE
+      IC15=IC2+1
+      IC57=IC1
+      DO 41 I=IC15,IC57
+      DO 41 K=3,10
+      A(I,JN,K)= A(I,JN-1,K)
+   41 CONTINUE
+      DX2=X2(JB1)-X2(JB1-1)
+      WK=1.
+      DO 142 I=IC15,IC57
+      Z=A(I,JB1,NW)
+      WX=(A(I,JB1-1,NF)-A(I,JB1,NF))/(DX2*DX2)
+      WY=A(I,JB1-1,NW)*(R(JB1)-WK*DX2)*(A(I,JB1,NRO3)*(R(JB1)/6.
+     * -WK*DX2/8.)
+     * +(A(I,JB1-1,NRO3)-A(I,JB1,NRO3))*(R(JB1)/8.-WK*DX2/10.))
+      WZ=R(JB1)*(A(I,JB1,NRO3)*(R(JB1)/3.-5.*WK*DX2/24.)+
+     *  (A(I,JB1-1,NRO3)-
+     *A(I,JB1,NRO3))*(5.*R(JB1)/24.-3.*WK*DX2/20.))
+      A(I,JB1,NW)=-1.*(WX+WY)/WZ
+      IF(NITER.LE.NPRINT) A(I,JB1,NW)=0.
+      IF(A(I,JB1,NW).GE.1.E+14) A(I,JB1,NW)=1.E+14
+      IF(A(I,JB1,NW).LE.-1.E+14) A(I,JB1,NW)=-1.E+14
+  142 CONTINUE
+      DO 50 I=IC,INM
+      DO 50 K=3,10
+      A(I,JC,K)= A(I,JC-1,K)
+   50 CONTINUE
+      WK=1.
+      DX2=X2(JC)-X2(JC-1)
+      DO 51 I=IC,IN
+      Z=A(I,JC,NW)
+      WX=A(I,JC-1,NF)/(DX2*DX2)
+      WY=A(I,JC-1,NW)*(R(JC )-WK*DX2)*(A(I,JC ,NRO3)*(R(JC)/6.
+     * -WK*DX2/8.)
+     * +(A(I,JC -1,NRO3)-A(I,JC ,NRO3))*(R(JC )/8.-WK*DX2/10.))
+      WZ=R(JC)*(A(I,JC ,NRO3)*(R(JC)/3.-5.*WK*DX2/24.)
+     * +(A(I,JC-1,NRO3)-
+     *A(I,JC ,NRO3))*(5.*R(JC )/24.-3.*WK*DX2/20.))
+      A(I,JC,NW)=-1.*(WX+WY)/WZ
+      IF(NITER.LE.NPRINT) A(I,JC,NW)=0.
+      IF(A(I,JC,NW).GE.1.E+14) A(I,JC,NW)=1.E+14
+      IF(A(I,JC,NW).LE.-1.E+14) A(I,JC,NW)=-1.E+14
+   51 CONTINUE
+      DO 61 I=2,INM
+      DO 61 K=3,10
+      A(I,1,K)=A(I,2,K)
+      IF(NCORD.EQ.1) A(I,1,NW)=0.
+      IF(NCORD.EQ.2) A(I,1,NW)=A(I,2,NW)+(X2(2)/(X2(3)-X2(2)))*
+     *(A(I,2,NW)-A(I,3,NW))
+      IF(A(I,1,NW).GE.1.E+14) A(I,1,NW)=1.E+14
+      IF(A(I,1,NW).LE.-1.E+14) A(I,1,NW)=-1.E+14
+C      A(I,1,NW)=0.
+   61 CONTINUE
+      ICC=IC+1
+      DO 70 K=1,N3
+      DO 70 J=1,JC
+   70 A(IN,J,K)=A(IN-1,J,K)
+      RETURN
+      END
+      SUBROUTINE PRINT1(N1,N2,N3,A,IV)
+      DIMENSION A(N1,N2,N3)
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),
+     *R(22),NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      WRITE (9,102)(K,K=2,6)
+      IV=13
+      DO 3 J=1,JN
+      DO 2 I=1,IN
+    2 WRITE (9,101)(A(I,J,K),K=1,4),X1(I),X2(J)
+    3 CONTINUE  
+C      WRITE (9,102)(K,K=9,13)
+C      DO 5 J=1,JN
+C      DO 4 I=1,IN 
+C    4 WRITE (9,101)(A(I,J,K),K=9,13),X1(I),X2(J)
+C    5 CONTINUE 
+  101 FORMAT (2X,6E11.3)
+  102 FORMAT (1H0,5X,5(I2,9X),'X1(I)',6X,'X2(J)')
+      RETURN
+      END
+      SUBROUTINE PRINT(N1,N2,N3,A,IN,JN,IV)
+      DIMENSION A(N1,N2,N3)
+      DO 10 K=2,IV
+      IF(K.EQ.11) GO TO 10
+      IF(K.GT.4.AND.K.LT.13) GO TO 10
+      PRINT 105,K
+      PRINT 102,(I,I=1,6)
+      DO 2 J=1,JN
+      JF=JN-J+1
+    2 PRINT 101,(A(I,JF,K),I=1,6),JF
+      PRINT 102,(I,I=7,12)
+      DO 3 J=1,JN
+      JF=JN-J+1
+    3 PRINT 101,(A(I,JF,K),I=7,12),JF
+      GO TO 10
+      PRINT 102,(I,I=13,18)
+      DO 4 J=1,JN
+       JF=JN-J+1
+    4 PRINT 101,(A(I,JF,K),I=13,18),JF
+      PRINT 102,(I,I=19,24)
+      DO 5 J=1,JN
+      JF=JN-J+1
+   5  PRINT 101,(A(I,JF,K),I=19,24),JF
+      PRINT 102,(I,I=25,30)
+      DO 6 J=1,JN
+      JF=JN-J+1
+   6  PRINT 101,(A(I,JF,K),I=25,30),JF
+      PRINT 102,(I,I=31,36)
+      DO 7 J=1,JN
+      JF=JN-J+1
+    7 PRINT 101,(A(I,JF,K),I=31,36),JF
+      PRINT 102,(I,I=37,42)
+      DO 8 J=1,JN
+      JF=JN-J+1
+   8  PRINT 101,(A(I,JF,K),I=37,42),JF
+      PRINT 103,(I,I=43,IN)
+      DO 9 J=1,JN
+      JF=JN-J+1
+ 9    PRINT 104,(A(I,JF,K),I=43,IN),JF  
+   10 CONTINUE
+  101 FORMAT (2X,6E11.3,2X,I2)
+  102 FORMAT (1H0,7X,6(I2,9X))
+  103 FORMAT (1H0,7X,4(I2,9X))
+  104 FORMAT (2X,4E11.3,2X,I2)
+  105 FORMAT (1H0,30X,I2)
+        RETURN
+        END

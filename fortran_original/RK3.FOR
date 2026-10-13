@@ -1,0 +1,267 @@
+
+      SUBROUTINE EQN(N1,N2,N3,A)
+      DIMENSION A(N1,N2,N3) 
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      IF(NITER.LE.NPRINT.AND.NVAR.EQ.1) GO TO 177
+      RL=0.1
+      DO 11 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC) IM=IC-1
+      DO 11 I=IL,IM
+      IF(J.EQ.JA.AND.I.EQ.2 )GO TO 111
+      IF(J.EQ.JA1.AND.I.EQ.(IC2+1)) GO TO 111
+      IF(J.EQ.JA2.AND.I.EQ.(IC2+1)) GO TO 111 
+      IF(J.EQ.JA3.AND.I.EQ.(IC2+1)) GO TO 111
+      IF(J.EQ.JZ.AND.I.EQ.2) GO TO 111
+      IF(J.EQ.JZ1.AND.I.EQ.2) GO TO 111
+      IF(JB1.EQ.JN) GO TO 77
+      IF(J.EQ.(JB1-1) .AND.I.EQ.IC2 )GO TO 113
+   77 CONTINUE
+      Z=A(I,J,NW)
+      CALL SORCE(N1,N2,N3,A,SOURCE,I,J,NW)
+      RSO=R(J)*R(J)
+      BBE=2.*RSO*BE(I)
+      BBW=2.*RSO*BW(I)
+      BBS=(R(J-1)*R(J-1)+RSO)*BS(J)
+      BBN=(R(J+1)*R(J+1)+RSO)*BN(J)
+      AAE=RSO*AE(I,J)
+      AAW=RSO*AW(I,J)
+      AAN=RSO*AN(I,J)
+      AAS=RSO*AS(I,J)
+      ANUM=(AAE+A(I+1,J,NMU)*BBE)*A(I+1,J,NW)+(AAW+A(I-1,J,NMU)*BBW)*
+     *A(I-1,J,NW)+(AAN+A(I,J+1,NMU)*BBN)*A(I,J+1,NW)+(AAS+A(I,J-1,NMU)*
+     *BBS)*A(I,J-1,NW)+SOURCE
+      ADNM=AAE+AAW+AAN+AAS+A(I,J,NMU)*(BBE+BBW+BBN+BBS)
+      IF(ADNM.EQ.0.) GO TO 112
+      A(I,J,NW)=ANUM/ADNM
+      A(I,J,NW)=Z+(A(I,J,NW)-Z)*RL
+  112 CONTINUE
+      GO TO 114
+  111 CONTINUE
+      Z=A(I,J,NW)
+      RISO=1./R(J)/R(J)
+      ROP3=A(I,J,NRO3)
+      BBE=4./(A(I+1,J,NRO3)+ROP3)*RISO*BE(I)
+      BBW=4./(A(I-1,J,NRO3)+ROP3)*RISO*BW(I)
+      BBN=16./(A(I,J+1,NRO3)+ROP3)/((R(J+1)+R(J))**2.)*BN(J)
+      BBS=16./(A(I,J-1,NRO3)+ROP3)/((R(J-1)+R(J))**2.)*BS(J)
+      ANUM=BBE*A(I+1,J,NF)+BBW*A(I-1,J,NF)+BBN*A(I,J+1,NF)+
+     *BBS*A(I,J-1,NF)
+      ADNM=BBE+BBW+BBN+BBS
+      A(I,J,NW)=A(I,J,NF)*ADNM-ANUM
+      A(I,J,NW)=Z+(A(I,J,NW)-Z)*RL
+      GO TO 114
+  113 CONTINUE
+      Z=A(I,J,NW)
+      RISO=1./R(J)/R(J)
+      ROP3=A(I,J,NRO3)
+      BBE=4./(A(I+1,J,NRO3)+ROP3)*RISO*BE(I)
+      BBW=4./(A(I-1,J,NRO3)+ROP3)*RISO*BW(I)
+      BBN=16./(A(I,J+1,NRO3)+ROP3)/((R(J+1)+R(J))**2.)*BN(J)
+      BBS=16./(A(I,J-1,NRO3)+ROP3)/((R(J-1)+R(J))**2.)*BS(J)
+      ANUM=BBE*A(I+1,J,NF)+BBW*A(I-1,J,NF)+BBN*A(I,J+1,NF)+
+     *BBS*A(I,J-1,NF)
+      ADNM=BBE+BBW+BBN+BBS
+      A(I,J,NW)=A(I,J,NF)*ADNM-ANUM
+      A(I,J,NW)=Z+(A(I,J,NW)-Z)*RL
+  114 CONTINUE
+      IF(ABS(A(I,J,NW)).GE.1.E-20) GO TO 15
+      IF(ABS(Z).GE.1.E-20) RS=1-A(I,J,NW)/Z
+      GOTO 16
+  15  RS=1.-Z/A(I,J,NW)
+   16 CONTINUE
+      IF(ABS(A(I,J,NW)).LT.1.E-20.AND.ABS(Z).LT.1.E-20) RS=0.
+      IF(ABS(RS).GT.ABS(RSDU(NW))) RSDU(NW)=RS
+      IF(NITER.GE.20) A(I,J,NW)=Z+(A(I,J,NW)-Z)*1.0
+      IF(A(I,J,NW).GE.1.E+14) A(I,J,NW)=1.E+14
+      IF(A(I,J,NW).LE.-1.E+14) A(I,J,NW)=-1.E+14
+   11 CONTINUE
+ 177  CONTINUE
+      DO 21 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC ) IM=IC-1
+      DO 21 I=IL,IM
+      Z=A(I,J,NF)
+      IF(J.EQ.JA.AND.I.EQ.2) GO TO 121
+      IF(J.EQ.JA1.AND.I.EQ.(IC2+1)) GO TO 121
+      IF(J.EQ.JA2.AND.I.EQ.(IC2+1)) GO TO 121
+      IF(J.EQ.JA3.AND.I.EQ.(IC2+1)) GO TO 121
+      IF(J.EQ.JZ.AND.I.EQ.2) GO TO 121
+      IF(J.EQ.JZ1.AND.I.EQ.2) GO TO 121
+      IF(JB1.EQ.JN) GO TO 78
+      IF(J.EQ.(JB1-1).AND.I.EQ.IC2 ) GO TO 123
+   78 CONTINUE
+      CALL SORCE (N1,N2,N3,A,SOURCE,I,J,NF)
+      IF(NITER.LE.NPRINT) SOURCE=0. 
+      RISO=1./R(J)/R(J)
+      ROP3=A(I,J,NRO3)
+      BBE=4./(A(I+1,J,NRO3)+ROP3)*RISO*BE(I)
+      BBW=4./(A(I-1,J,NRO3)+ROP3)*RISO*BW(I)
+      BBN=16./(A(I,J+1,NRO3)+ROP3)/((R(J+1)+R(J))**2.)*BN(J)
+      BBS=16./(A(I,J-1,NRO3)+ROP3)/((R(J-1)+R(J))**2.)*BS(J)
+      ANUM=BBE*A(I+1,J,NF)+BBW*A(I-1,J,NF)+BBN*A(I,J+1,NF)+
+     *BBS*A(I,J-1,NF)+SOURCE
+      ADNM=BBE+BBW+BBN+BBS
+      IF(ADNM.EQ.0.) GO TO 21
+      A(I,J,NF)=ANUM/ADNM
+      GO TO 122
+  121 A(I,J,NF)=A(I-1,J,NF)
+      GO TO 122
+  123 A(I,J,NF)=A(I,J+1,NF)
+  122 CONTINUE
+      IF(ABS(A(I,J,NF)).GE.1.E-20) GO TO 25
+      IF(ABS(Z).GE.1.E-20) RS=1-A(I,J,NF)/Z
+      GO TO 26
+   25 RS=1-Z/A(I,J,NF)
+   26 CONTINUE
+      IF(ABS(A(I,J,NF)).LT.1.E-20.AND.ABS(Z).LT.1.E-20) RS=0.
+      IF(ABS(RS).GT.ABS(RSDU(NF))) RSDU(NF)=RS
+      IF(A(I,J,NF).GE.1.E+25) A(I,J,NF)=1.E+25
+      IF(A(I,J,NF).LE.-1.E+25) A(I,J,NF)=-1.E+25
+   21 CONTINUE
+      DO 666 J=3,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC) IM=IC-1
+      DO 666 I=IL,IM
+      BBE=(A(I+1,J,NMU)*R(J)**2+A(I,J,NMU)*R(J)**2)*BE(I)
+      BBW=(A(I-1,J,NMU)*R(J)**2+A(I,J,NMU)*R(J)**2)*BW(I)
+      BBN=(A(I,J+1,NMU)*R(J+1)**2+A(I,J,NMU)*R(J)**2)*BN(J)
+      BBS=(A(I,J-1,NMU)*R(J-1)**2+A(I,J,NMU)*R(J)**2)*BS(J)
+      ANUM=(AE(I,J)+BBE/R(J)**2)*A(I+1,J,NMU2)+(AW(I,J)+BBW/
+     *R(J)**2)*A(I-1,J,NMU2)+(AN(I,J)+BBN/R(J+1)**2)*
+     *A(I,J+1,NMU2)+(AS(I,J)+BBS/R(J-1)**2)*A(I,J-1,NMU2)
+      ADNM=AE(I,J)+AW(I,J)+AN(I,J)+AS(I,J)+BBE/R(J)**2+
+     *BBW/R(J)**2+BBN/R(J+1)**2+BBS/R(J-1)**2
+      IF(ADNM.EQ.0.) GO TO 666
+      Z=A(I,J,NMU2)
+      A(I,J,NMU2)=ANUM/ADNM
+  666 CONTINUE
+      DO 667 I=2,INM
+      A(I,2,NMU2)=A(I,3,NMU2)*R(2)/R(3)
+  667 CONTINUE
+      DO 61 II=3,10
+      K=13-II
+      DO 51 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC ) IM=IC-1
+      DO 51 I=IL,IM
+      ADNM=AE1(I,J)+AW1(I,J)+AN1(I,J)+AS1(I,J)
+      Z=A(I,J,K)
+      ANUM= AE1(I,J)*A(I+1,J,K)+AW1(I,J)*A(I-1,J,K)+AN1(I,J)
+     * *A(I,J+1,K)+AS1(I,J)*A(I,J-1,K)
+      CALL SORCE (N1,N2,N3,A,SOURCE,I,J,K)
+      ANUM=ANUM+SOURCE
+      IF(ADNM.EQ.0.)GO TO 51
+      A(I,J,K)=ANUM/ADNM
+      IF(K.NE.NMU1) GOTO 51
+      IF(ABS(A(I,J,K)).GE.1.E-20) GO TO 65
+      IF(ABS(Z).GE.1.E-20) RS=1-A(I,J,K)/Z
+      GOTO 66
+  65  RS=1.-Z/A(I,J,K)
+  66  CONTINUE
+      IF(ABS(A(I,J,K)).LT.1.E-20.AND.ABS(Z).LT.1.E-20) RS=0.
+      IF(ABS(RS).GT.ABS(RSDU(K))) RSDU(K)=RS
+   51 CONTINUE
+   61 CONTINUE
+      DO 56 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC) IM=IC-1
+      DO 56 I=IL,IM
+      FKS(I,J)=A(I,J,NMFU1)
+      TKS(I,J)=A(I,J,NMOX1)
+      CM=A(I,J,NMFU1)+A(I,J,NMFU2)+A(I,J,NMOX1)+A(I,J,NMOX2)+
+     * A(I,J,NMPR1)+A(I,J,NMPR2)+A(I,J,NMDF)
+      IF(ABS(CM).LE.1.E-20) GO TO 56
+      A(I,J,NMFU1)=A(I,J,NMFU1)/CM
+      A(I,J,NMFU2)=A(I,J,NMFU2)/CM
+      A(I,J,NMOX1)=A(I,J,NMOX1)/CM
+      A(I,J,NMOX2)=A(I,J,NMOX2)/CM
+      A(I,J,NMPR1)=A(I,J,NMPR1)/CM
+      A(I,J,NMPR2)=A(I,J,NMPR2)/CM
+      A(I,J,NMDF)=A(I,J,NMDF)/CM
+  56  CONTINUE 
+      DO 82 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC) IM=IC-1
+      DO 82 I=IL,IM     
+C     IF(NITER.EQ.1.AND.A(I,J,NT).LE.ROM1) A(I,J,NT)=ROM1+1.
+      IF(NITER.NE.18) GO TO 331
+      IF(I.GE.3.AND.I.LE.11.AND.J.GT.JZ.AND.J.LT.JA1) GO TO 33
+ 331  IF(A(I,J,NT).LT.ROM1) GO TO 304
+  33  CONTINUE
+      IF(A(I,J,NMFU1).LE.1.E-20) GO TO 82
+      ZNK=A(I,J,NMOX1)/A(I,J,NMFU1)
+      IF(ZNK.GT.3.9166) GO TO 83
+      A(I,J,NMPR1)=A(I,J,NMPR1)+(8.*44./32./47.)*A(I,J,NMOX1)
+      A(I,J,NMOX2)=A(I,J,NMOX2)+(16.*28./32./47.)*A(I,J,NMOX1)
+      A(I,J,NMDF)=A(I,J,NMDF)+(4./32./47.)*A(I,J,NMOX1)
+      A(I,J,NMPR2)=A(I,J,NMPR2)+(30.*18./32./47.)*A(I,J,NMOX1)
+      A(I,J,NMFU2)=A(I,J,NMFU2)+(32.*17./32./47.)*A(I,J,NMOX1)
+      A(I,J,NMFU1)=A(I,J,NMFU1)-(24.*16./32./47.)*A(I,J,NMOX1)
+      IF(A(I,J,NMFU1).LT.1.E-20) A(I,J,NMFU1)=1.E-20
+      A(I,J,NMOX1)=1.E-20
+      GO TO 304
+   83 CONTINUE
+      A(I,J,NMPR1)=A(I,J,NMPR1)+(8.*44./24./16.)*A(I,J,NMFU1)
+      A(I,J,NMOX2)=A(I,J,NMOX2)+(28.*16./24./16.)*A(I,J,NMFU1)
+      A(I,J,NMDF)=A(I,J,NMDF)+(4./24./16.)*A(I,J,NMFU1)
+      A(I,J,NMPR2)=A(I,J,NMPR2)+(30.*18./24./16.)*A(I,J,NMFU1)
+      A(I,J,NMFU2)=A(I,J,NMFU2)+(32.*17./24./16.)*A(I,J,NMFU1)
+      A(I,J,NMOX1)=A(I,J,NMOX1)-(47.*32./24./16.)*A(I,J,NMFU1)
+      IF(A(I,J,NMOX1).LT.1.E-20) A(I,J,NMOX1)=1.E-20
+      A(I,J,NMFU1)=1.E-20
+ 304  CONTINUE           
+      CM=A(I,J,NMFU1)+A(I,J,NMFU2)+A(I,J,NMOX1)+A(I,J,NMOX2)+
+     * A(I,J,NMPR1)+A(I,J,NMPR2)+A(I,J,NMDF)
+      IF(ABS(CM).LE.1.E-20) GO TO 82
+      A(I,J,NMFU1)=A(I,J,NMFU1)/CM
+      A(I,J,NMFU2)=A(I,J,NMFU2)/CM
+      A(I,J,NMOX1)=A(I,J,NMOX1)/CM
+      A(I,J,NMOX2)=A(I,J,NMOX2)/CM
+      A(I,J,NMPR1)=A(I,J,NMPR1)/CM
+      A(I,J,NMPR2)=A(I,J,NMPR2)/CM
+      A(I,J,NMDF)=A(I,J,NMDF)/CM
+      IF(ABS(FKS(I,J)).LT.1.E-22) GO TO 787
+      RS=1.-A(I,J,NMFU1)/FKS(I,J)
+      GO TO 789
+ 787  RS=1.
+789   CONTINUE
+      IF(ABS(FKS(I,J)).LT.1.E-22.AND.ABS(A(I,J,NMFU1)).LT.1.E-22) RS=0.
+      IF(ABS(RS).GE.ABS(RSDU(NMFU1))) RSDU(NMFU1)=ABS(RS)
+      IF(ABS(TKS(I,J)).LT.1.E-22) GO TO 393
+      RS=1.-A(I,J,NMOX1)/TKS(I,J)
+      GO TO 399
+ 393  RS=1.
+ 399  CONTINUE
+      IF(ABS(TKS(I,J)).LT.1.E-22.AND.ABS(A(I,J,NMOX1)).LT.1.E-22) RS=0.
+      IF(ABS(RS).GE.ABS(RSDU(NMOX1))) RSDU(NMOX1)=ABS(RS)
+      FKS(I,J)=0.
+      TKS(I,J)=0.
+   82 CONTINUE
+      CALL BOUND(N1,N2,N3,A)
+      RETURN
+      END

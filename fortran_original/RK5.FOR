@@ -1,0 +1,252 @@
+
+      SUBROUTINE VELDIS(N1,N2,N3,A)
+      DIMENSION A(N1,N2,N3)
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      DO 50 J=2,JNM
+      H2=(X2(J)-X2(J-1))/(X2(J+1)-X2(J))
+      RX2=R(J)*(X2(J+1)-X2(J-1))
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC ) IM=IC -1
+      DO 50 I=IL,IM
+      H1=(X1(I-1)-X1(I))/(X1(I+1)-X1(I))
+      RX1=R(J)*(X1(I+1)-X1(I-1))
+      A(I,J,NV1)=(A(I,J+1,NF)-A(I,J,NF))*H2+(A(I,J,NF)-A(I,J-1,NF))/H2
+      A(I,J,NV1)=A(I,J,NV1)/RX2/A(I,J,NRO3)
+      A(I,J,NV2)=(A(I+1,J,NF)-A(I,J,NF))*H1+(A(I,J,NF)-A(I-1,J,NF))/H1
+      A(I,J,NV2)=A(I,J,NV2)/RX1/A(I,J,NRO3)
+      IF(NITER.GE.85.AND.ABS(A(I,J,NV1)).GE.27000.) NITER=NITER+1000
+   50 CONTINUE
+      DELX2=X2(2)-X2(1)
+      DO 20 I=2,INM
+      A(I,1,NV1)=(A(I,2,NF)-A(I,1,NF))/DELX2/A(I,1,NRO3)/0.5/R(2) 
+   20 CONTINUE
+      DO 10 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC ) IM=IC-1
+      DO 10 I=IL,IM
+      VS(I,J)=0.5*(A(I,J,NV1)*A(I,J,NV1)+A(I,J,NV2)*A(I,J,NV2))
+      FKS(I,J)=(A(I,J,NMU2)/R(J))**2*A(I,J,NRO3)
+ 10   CONTINUE
+      DO 30 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC)  IM=IC-1
+      DO 30 I=IL,IM
+      DIF1=((VS(I+1,J)-VS(I,J))*(X1(I)-X1(I-1))/
+     *(X1(I+1)-X1(I))+(VS(I,J)-VS(I-1,J))*(X1(I+1)-X1(I))/
+     *(X1(I)-X1(I-1)))/(X1(I+1)-X1(I-1))
+      DIF2=((VS(I,J+1)-VS(I,J))*(X2(J)-X2(J-1))/
+     *(X2(J+1)-X2(J))+(VS(I,J)-VS(I,J-1))*(X2(J+1)-X2(J))/
+     *(X2(J)-X2(J-1)))/(X2(J+1)-X2(J-1))
+      DIF3=((A(I+1,J,NRO3)-A(I,J,NRO3))*(X1(I)-X1(I-1))/
+     *(X1(I+1)-X1(I))+(A(I,J,NRO3)-A(I-1,J,NRO3))*(X1(I+1)-X1(I))/
+     *(X1(I)-X1(I-1)))/(X1(I+1)-X1(I-1))
+      DIF4=((A(I,J+1,NRO3)-A(I,J,NRO3))*(X2(J)-X2(J-1))/
+     *(X2(J+1)-X2(J))+(A(I,J,NRO3)-A(I,J-1,NRO3))*(X2(J+1)-X2(J))/
+     *(X2(J)-X2(J-1)))/(X2(J+1)-X2(J-1))
+       DIF5=0.   
+      DIF5=((FKS(I+1,J)-FKS(I,J))*(X1(I)-X1(I-1))/
+     *(X1(I+1)-X1(I))+(FKS(I,J)-FKS(I-1,J))*(X1(I+1)-X1(I))/
+     *(X1(I)-X1(I-1)))/(X1(I+1)-X1(I-1))
+      S1=DIF1*DIF4
+      S2=DIF2*DIF3
+      UKS(I,J)=R(J)*(S1-S2)-DIF5
+   30 CONTINUE
+      RETURN
+      END
+      SUBROUTINE CONVEC(N1,N2,N3,A)
+      DIMENSION  A(N1,N2,N3)
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      RL=1.0
+      DO 10 J=2,JNM
+      IL=IMIN(J)
+      IM=IMAX(J)
+      IF(J.EQ.JA3) IL=IC2+1
+      IF(J.EQ.JC ) IM=IC-1
+      DO 10 I=IL,IM
+      DV=R(J)*(X1(I+1)-X1(I-1))*(X2(J+1)-X2(J-1))
+      G1PW=(A(I,J+1,NF)-A(I,J-1,NF)+A(I-1,J+1,NF)-A(I-1,J-1,NF))/DV
+      G1PE=(A(I,J+1,NF)-A(I,J-1,NF)+A(I+1,J+1,NF)-A(I+1,J-1,NF))/DV
+      G2PS=(A(I-1,J,NF)-A(I+1,J,NF)+A(I-1,J-1,NF)-A(I+1,J-1,NF))/DV
+      G2PN=(A(I-1,J,NF)-A(I+1,J,NF)+A(I-1,J+1,NF)-A(I+1,J+1,NF))/DV
+      AE(I,J)=0.5*(ABS(G1PE)-G1PE)
+      AW(I,J)=0.5*(ABS(G1PW)+G1PW)
+      AN(I,J)=0.5*(ABS(G2PN)-G2PN)
+      AS(I,J)=0.5*(ABS(G2PS)+G2PS)
+      BPP=A(I,J,NMU)
+      BBE=(A(I+1,J,NMU)+BPP)*BE(I)
+      BBW=(A(I-1,J,NMU)+BPP)*BW(I)
+      BBN=(A(I,J+1,NMU)+BPP)*BN(J)
+      BBS=(A(I,J-1,NMU)+BPP)*BS(J)
+      AE1(I,J)=AE(I,J)+BBE
+      AW1(I,J)=AW(I,J)+BBW
+      AN1(I,J)=AN(I,J)+BBN
+      AS1(I,J)=AS(I,J)+BBS
+ 10   CONTINUE
+      RETURN
+      END
+      SUBROUTINE GRID(N1,N2,N3,A)
+      DIMENSION  A(N1,N2,N3)
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      COMMON/XK/DKR,DCMB,DOGOR,DELGOR,DKAR,DOOK,DELOK,DKS,DELKAR,
+     *ALKS,ALKD,TGY,ALFA
+      NIG=0
+    1 CONTINUE
+      NIG=NIG+1
+      X2(JZ)=DCMB/2.
+      X2(JZ1)=DOGOR/2.
+      X2(JA)=DELGOR+X2(JZ1)
+      X2(JA3)=DKAR/2.
+      X2(JA1)=DOOK/2.
+      X2(JA2)=DELOK+X2(JA1)
+      X2(JN)=DKS/2.
+      X1(IC2)=DELKAR
+      X1(IC1)=X1(IC2)+ALKS
+      X1(IC)=ALKD
+      DO 4 J=2,JZ
+      X2(J)=X2(J-1)+X2(JZ)/(JZ-1) 
+    4 CONTINUE
+      JZZ=JZ+1
+      DO 40 J=JZZ,JZ1
+      X2(J)=X2(J-1)+(X2(JZ1)-X2(JZ))/(JZ1-JZ)
+   40 CONTINUE
+      JZZ=JZ1+1
+      DO 41 J=JZZ,JA
+      X2(J)=X2(J-1)+(X2(JA)-X2(JZ1))/(JA-JZ1)
+   41 CONTINUE
+      JZZ=JA+1
+      DO 42 J=JZZ,JA3
+      X2(J)=X2(J-1)+(X2(JA3)-X2(JA))/(JA3-JA)
+   42 CONTINUE
+      JZZ=JA3+1
+      DO 43 J=JZZ,JA1
+      X2(J)=X2(J-1)+(X2(JA1)-X2(JA3))/(JA1-JA3)
+   43 CONTINUE
+      JZZ=JA1+1
+      DO 44 J=JZZ,JA2
+      X2(J)=X2(J-1)+(X2(JA2)-X2(JA1))/(JA2-JA1)
+   44 CONTINUE
+      JZZ=JA2+1
+      DO 45 J=JZZ,JN
+      X2(J)=X2(J-1)+(X2(JN)-X2(JA2))/(JN-JA2)
+   45 CONTINUE
+      KJ=JJ-JC
+      DO 46 J=2,JN
+      XX2=DKR/2.-X2(J)
+      IF(XX2.LE.0.) GO TO 47
+   46 CONTINUE
+   47 CONTINUE
+      JJ=J
+      KJ=JJ-JC
+      JC=JJ
+      IC=IC-KJ
+      JB1=JN
+      JB=JB1-1
+      JC1=JC+1
+      X2(JC)=DKR/2.
+      IC1=IC-(JN-JC)
+      DO 48 I=2,IC2
+      X1(I)=X1(I-1)+X1(IC2)/(IC2-1)
+   48 CONTINUE
+      ICC=IC2+1
+      X1(IC1)=X1(IC2)+ALKS
+      DO 49 I=ICC,IC1
+      X1(I)=X1(I-1)+(X1(IC1)-X1(IC2))/(IC1-IC2)
+   49 CONTINUE
+      ICLM1=IC1+1
+      DO 51 I=ICLM1,IC
+      LK=JN-I+IC1
+      X1(I)=X1(IC1)+(X2(JN)-X2(LK))/TGY
+C      PRINT *,I,LK,X2(LK),X2(JN),TGY,X1(I)
+   51 CONTINUE
+      ICC=IC+1
+      DO 52 I=ICC,IN
+      XZ1=1.
+      IF(NVAR.NE.1) XZ1=1.E-3
+   52 X1(I)=X1(I-1)+XZ1/(IN-IC)     
+      IF(NVAR.NE.1) GO TO 145
+      DO 8 J=1,JN
+      X2(J)=X2(J)*0.001
+    8 CONTINUE
+      DO 9 I=1,IN
+      X1(I)=X1(I)*0.001
+    9 CONTINUE
+  145 CONTINUE 
+      GO TO (14,15),NCORD
+   14 DO 11 J=1,JN
+   11 R(J)=1.
+      GO TO 17
+   15 DO 16 J=1,JN
+   16 R(J)=X2(J)
+   17 DO 21 I=2,INM
+      DX1=1./(X1(I+1)-X1(I-1))
+      BW(I)=DX1/(X1(I)-X1(I-1))
+   21 BE(I)=DX1/(X1(I+1)-X1(I))
+      DO 22 J=2,JNM
+      DX2=0.5/(X2(J+1)-X2(J-1))
+      BS(J)=(1.+R(J-1)/R(J))/(X2(J)-X2(J-1))*DX2
+   22 BN(J)=(1.+R(J+1)/R(J))/(X2(J+1)-X2(J))*DX2
+      DO 20 J=1,JN
+      DO 20 I=1,IN
+      AE(I,J)=0.
+      AW(I,J)=0.
+      AN(I,J)=0.
+      AS(I,J)=0.
+      AE1(I,J)=0.
+      AW1(I,J)=0.
+      AN1(I,J)=0.
+      AS1(I,J)=0.
+      UKS(I,J)=0.
+      VS(I,J)=0.
+      FKS(I,J)=0.
+      TKS(I,J)=0.
+   20 CONTINUE
+      DO 30 K=1,N3
+      DO 30 J=1,JN
+      DO 30 I=1,IN
+      A(I,J,K)=0.
+   30 CONTINUE
+    2 CONTINUE   
+      RETURN
+      END

@@ -1,0 +1,271 @@
+
+      DIMENSION A(46,22,17)
+      COMMON/CW/  AE(46,22),AW(46,22),AN(46,22),AS(46,22),
+     *BE(46),BW(46),BN(22),BS(22),VS(46,22),FKS(46,22),TKS(46,22),
+     *AE1(46,22),AW1(46,22),AN1(46,22),AS1(46,22),UKS(46,22),PK(46,22)
+      COMMON/CNUMBR/NW,NF,NMFU1,NMOX2,NMFU2,NMOX1,NMPR1,NMPR2,NMDF,
+     * NRO3,NRO1,NK,NT,NV1,NV2,NDFU1,NMU,NNFU1,
+     * NRFU1,NMFU3,NMOX3,NMU1,NMU2,IE,IV
+      COMMON/CGED/IN,INM,JN,JNM,IMIN(22),IMAX(22),X1(46),X2(22),R(22),
+     *NCORD,LN,LMIN(25),VINT,ROT,VINP1,VINS1,VINT1,ROS1,ROP1
+      COMMON/CGEN/D,P,H,NMAX,NPRINT,IP,CC,RSDU(12),C
+      COMMON/CVLT/JA,JB,JC,IC,VINP,VINS,ROP,ROS,ZMF2N,ZMO2N,
+     *ZNF2N,ROM1,AMS,AMO,AMG
+      COMMON/CVLE/RO1,JZ,JZ1,NVAR,NVARM,AFI,AFIG
+      COMMON/CVNT/NITER,RL,IC2,JA1,JB1,JC1,IC1,JA2,JA3
+      COMMON/XL/PKS(46),AKT
+      COMMON/XK/DKR,DCMB,DOGOR,DELGOR,DKAR,DOOK,DELOK,DKS,DELKAR,
+     *ALKS,ALKD,TGY,ALFA
+      DATA N1/46/,N2/22/,N3/17/
+C     ���������� �������� ��������� NW-1-������������ �����,NF-2-������� ����, 
+C     NMFU1-3 - CH4, NMOX1-4-�2, NMFU2-5-OH, NMPR1-6-��2,NMDF-7-�2�,NMPR2-8-�2,
+C     NMOX2-9-��, NT - 13 - �����������
+C	 ������� ���� ��� ������ ����������� �������
+      OPEN (UNIT=7,FILE='shi10.dat')
+	OPEN (UNIT=9,FILE='shi20.dat')
+      INM=IN-1
+      JNM=JN-1
+      NITER=0
+      NVAR=0
+   90 CONTINUE
+      NVAR=NVAR+1
+      ALFA=ALFA+0.2
+C      D=D-2.E-3
+      DELD=0.5
+      IF(NVAR.NE.1) DELD=DELD*1.E-3
+C      DCMB=DCMB+DELD
+C      DKR=DKR+DELD
+C      DELKAR=DELKAR+DELD
+C      DOOK=DOOK+DELD
+C       DELOK=DELOK+DELD
+C      ALKS=ALKS+DELD
+C      DOGOR=DOGOR+DELD
+C      DELGOR=DELGOR+DELD
+      CALL GRID(N1,N2,N3,A)
+   18 CONTINUE
+  211 CONTINUE
+      C=3.14*DOOK*DELOK
+      S1=0.785*DCMB**2
+      G1=3.14*DOGOR*DELGOR
+      DO 80 I=1,IN
+      PKS(I)=P
+      IF(I.LT.IC1) GO TO 81
+      JL=JC+IC-I
+      DSS=X2(JL)*2
+      FSS=3.14/4.*DSS**2
+      FSKR=3.14*X2(JC)**2
+      FOS=FSS/FSKR
+      IF(FOS.LE.1.) FOS=1.
+      FA2=1./FOS
+      APR=(2./(AKT+1.))**(AKT/(AKT-1.))*P
+      AP2=APR/P
+      AP1=1.
+      NIT=0
+   82 CONTINUE
+      NIT=NIT+1
+      Z1=AP1
+      Z2=AP2
+      APQ=(Z1+Z2)/2.
+      ZAP1=(2./(AKT+1))**((AKT+1.)/(2.*(AKT-1.)))
+      ZAP2=((AKT-1.)/2.)**0.5
+      ZAP3=(1./APQ)**(1./AKT)
+      ZAP4=(1.-(APQ)**((AKT-1.)/AKT))**0.5
+      FA1=1./(ZAP1*ZAP2*ZAP3/ZAP4)
+      FZ=FA2-FA1
+      IF(ABS(FZ).LE.1.E-6) GO TO 83
+      IF(NIT.GT.1.E+4) GO TO 83
+      IF(FA2.LE.FA1) AP2=APQ
+      IF(FA2.GE.FA1) AP1=APQ
+      GO TO 82
+   83 CONTINUE
+      PKS(I)=APQ*P
+      IF(I.GT.IC) PKS(I)=PKS(IC)
+   81 CONTINUE
+   80 CONTINUE
+      APZ=P-PKS(IC1)
+      DO 187 I=2,IC1
+      PKS(I)=P-APZ*X1(I)/X1(IC1)
+      APO=PKS(I)/P
+  187 CONTINUE     
+      IF(ALFA.LE.1.) BETA=1794.+491.252*ALFA-475.9317*ALFA**2
+      IF(ALFA.GT.1.) BETA=2154.733-402.252*ALFA+54.1698*ALFA**2
+      IF(ALFA.LT.0.6) BETA=1917.-2500.*(0.6-ALFA)
+      IF(BETA.LT.600.) BETA=600.
+      GO TO 145
+      GO TO 99
+   91 CONTINUE
+      ALFA=0.6
+      BETA=1917.
+      GO TO 99
+   92 CONTINUE
+      ALFA=0.8
+      BETA=1885.
+      GO TO 99
+   97 CONTINUE
+      ALFA=0.9
+      BETA=1848.1
+      GO TO 99
+   98 CONTINUE
+      ALFA=0.95
+      BETA=1829.7
+      GO TO 99
+   93 CONTINUE
+      ALFA=1.
+      BETA=1811.3
+      GO TO 99
+   94 CONTINUE
+      ALFA=1.2
+      BETA=1745.6
+      GO TO 99
+   95 CONTINUE
+      ALFA=1.7
+      BETA=1627.
+      GO TO 99
+   96 CONTINUE 
+      ALFA=2.
+      BETA=1564.
+   99 CONTINUE 
+  145 CONTINUE
+      AKM1=70.
+      DKR=2.*X2(JC)
+      AKM=4.*ALFA
+      FKR=DKR**2*3.14/4.
+      AMS=P*FKR/BETA
+      AMG=AMS/(1+AKM)
+      AMO=AMG*AKM
+      AMO2=AMO
+      ROS=P/77427.4
+      ROP=P/154855.7 
+      AMS1=D
+      AKW=S1/(C+S1)
+      AMS1=AKW*AMO
+      VINS1=AMS1/(ROS*3.14*R(JZ)**2)
+      AMO1=AMS1
+      AMG1=0.
+      VINS=(AMO-AMO1)/ROS/(3.14*(R(JA2)**2-R(JA1)**2))
+      VINP=(AMG-AMG1)/ROP/(3.14*(R(JA)**2-R(JZ1)**2))
+      DKS=X2(JB1)*2.
+      ALKS=X1(IC1)-X1(IC2)
+      ALKD=X1(IC)
+      ALPRIW=(R(JA3)**2*X1(IC2)+(R(JB1)**2-R(JC)**2)*(X1(IC1)-
+     *X1(IC2))+(R(JB1)**2-R(JC)**2)*(X1(IC)-X1(IC1))/3.
+     *+R(JC)**2*(X1(IC)-X1(IC2)))
+     */R(JC)**2
+      TGY=(X2(JN)-X2(JC))/(X1(IC)-X1(IC1))
+      DKAR=X2(JA3)*2.
+      DELKAR=X1(IC2)
+      DOOK=X2(JA1)*2.
+      DELOK=X2(JA2)-X2(JA1)
+      DOGOR=X2(JZ1)*2.
+      DELGOR=X2(JA)-X2(JZ1)
+      DCMB=X2(JZ)*2.
+      CALL INIT(N1,N2,N3,A) 
+      VR=A(1,JZ1+1,NMU2)/R(JZ1+1)
+c      PRINT 116,NVAR
+	WRITE (7,116)NVAR 
+ 116  FORMAT(1H0,25X,'RASHET N',I4)    
+c      PRINT 106,P,ALFA,AKM,BETA,AMS,AMO,AMG,VINP,VINS,ROP,ROS,VR,
+c     *VINS1,AMS1
+	WRITE (7,106)P,ALFA,AKM,BETA,AMS,AMO,AMG,VINP,VINS,ROP,ROS,VR,
+     *VINS1,AMS1
+c      PRINT 110,JZ,JZ1,JA,JA1,JA2,JA3,JC,JN,IC,IC1,IC2,IN
+	WRITE (7,110)JZ,JZ1,JA,JA1,JA2,JA3,JC,JN,IC,IC1,IC2,IN
+c      PRINT 112,DKS,ALKS,ALKD,DKR,TGY,DKAR,DELKAR
+c     * ,DOOK,DELOK,DOGOR,DELGOR,DCMB,ALPRIW,C,S1,G1,AKW
+	WRITE (7,112)DKS,ALKS,ALKD,DKR,TGY,DKAR,DELKAR
+     * ,DOOK,DELOK,DOGOR,DELGOR,DCMB,ALPRIW,C,S1,G1,AKW
+ 106  FORMAT(1X ,'P=',E11.4,' ALFA=',F6.2,
+     *' KM=',F6.2,' BETA=',F6.1,' Ms=',E11.4,' Mok=',E11.4,
+     *' Mgor=',E11.4,' Vgor=',F6.1,
+     *' Vok=',F6.1,' ROg=',F6.1,' ROok=',F6.1,' Vokr=',F6.1,
+     *' Vcmw=',F6.1,' Mcmw=',E11.4)
+ 112  FORMAT(1X ,'Dks=',E11.4,' Lks=',E11.4,' Lkd=',E11.4,
+     *' Dkr=',E11.4,' tgY=',F6.1,' Dprk=',E11.4,' Lprk=',E11.4,
+     *' Dook=',E11.4,' DELOK=',E11.4,' DOGOR=',E11.4,' DELGOR=',E11.4,
+     *' Dcmw=',E11.4,' Lpriw=',E11.4,
+     *' Fod=',E11.4,' Fcmb=',E11.4,' Fgor=',E11.4,' Kwosp=',E11.4)
+ 110  FORMAT(1X ,'JZ=',I3,' JZ1=',I3,' JA= ',I3,' JA1=',I3,' JA2=',I3,
+     * ' JA3=',I3,' JC=',I3,' JN=',I3,' IC=',I3,' IC1=',I3,
+     * ' IC2=',I3,' IN=',I3)
+      NITER=0
+    1 CONTINUE
+      NITER=NITER+1
+      CALL VISCOS(N1,N2,N3,A)
+      CALL VELDIS(N1,N2,N3,A)
+      CALL CONVEC(N1,N2,N3,A)
+      CALL EQN(N1,N2,N3,A)
+      IF(NITER.GE.NMAX) GO TO 8
+      GO TO 1
+    8 CONTINUE
+c      PRINT 115,NITER
+	WRITE (7,115)NITER
+  115 FORMAT(25X,'NITER=',I4)
+ 1000 CONTINUE
+      JC17=JC-1
+      IF(ALFA.LE.1.) GO TO 28
+      ZGCP=0.
+      ZHP=0.
+      DO 311 J=2,JC17
+      ZHP=ZHP+A(IN,J,NMU1)*(A(IN,J+1,NF)-A(IN,J-1,NF))/2.
+      ZGCP=ZGCP+A(IN,J,NMFU1)*(A(IN,J+1,NF)-A(IN,J-1,NF))/2.
+  311 CONTINUE
+      ZGCP=ZGCP+A(IN,1,NMFU1)*(A(IN,2,NF)-A(IN,1,NF))/2.+
+     * A(IN,JC,NMFU1)*(A(IN,JC,NF)-A(IN,JC17,NF))/2.
+      ZGCP=ZGCP/((A(1,JA,NF)-A(1,JZ1,NF))+0.013833*(A(1,JZ,NF)-
+     * A(1,1,NF)))
+      ZHP=ZHP/(A(1,JC,NF)-A(1,1,NF))
+      IF(ABS(ZGCP).GT.1) ZGCP=1.
+      ZGCPE=(1.-ABS(ZGCP))**0.5
+C      PRINT *,H,ZHP
+c      PRINT 10001,ZGCPE
+	WRITE (7,10001)ZGCPE
+10001 FORMAT(1H ,'************* KOEF Fkomp (GOR) =',F8.5,' **********')
+      GO TO 29
+   28 CONTINUE
+      ZGCP=0.
+      DO 309 J=2,JC17
+      ZGCP=ZGCP+A(IN,J,NMFU1)*(A(IN,J+1,NF)-A(IN,J-1,NF))/2.
+ 309  CONTINUE
+      ZGCP=ZGCP+A(IN,1,NMFU1)*(A(IN,2,NF)-A(IN,1,NF))/2.+
+     * A(IN,JC,NMFU1)*(A(IN,JC,NF)-A(IN,JC17,NF))/2.
+      AMZ=AMG-AMO2/4.
+      ZGCP=(ZGCP-AMZ/6.28)/((AMG-AMZ)/6.28)
+      IF(ABS(ZGCP).GT.1.) ZGCP=1.
+      ZGCPT=(1.-ABS(ZGCP))**0.5
+c      PRINT 10002,ZGCPT
+	WRITE (7,10002)ZGCPT
+10002 FORMAT(1H ,'************* KOEF Fkomp (OK) =',F8.5,'***********')
+   29 CONTINUE
+C      PRINT 31
+   31 FORMAT(1H,10X,'J',7X,'Motn',12X,'ALFAj',12X,'BETAj')
+      Z=0.
+      DO 30 J=2,JC
+      IL=INM
+      ZO=A(IL,J-1,NMOX1)+4.27*A(IL,J-1,NMPR1)+3.35*A(IL,J-1,NMOX2)+
+     *376.*A(IL,J-1,NMDF)+2.785*A(IL,J-1,NMPR2)+2.765*A(IL,J-1,NMFU2)
+      ZG=A(IL,J-1,NMFU1)+1.09*A(IL,J-1,NMPR1)+0.857*A(IL,J-1,NMOX2)+
+     *96.*A(IL,J-1,NMDF)+0.711*A(IL,J-1,NMPR2)+0.706*A(IL,J-1,NMFU2)
+      ALFAJ=ZO/ZG/3.9166
+      IF(ALFAJ.LE.1.) BETAJ=1794.+491.252*ALFAJ-475.9317*ALFAJ**2
+      IF(ALFAJ.GT.1.) BETAJ=2154.-402.252*ALFAJ+54.1698*ALFAJ**2
+      IF(ALFAJ.LT.0.6) BETAJ=1917.-2500.*(0.6-ALFAJ)
+      IF(BETAJ.LT.600.) BETAJ=600.
+      ZF=(A(IL,J,NF)-A(IL,J-1,NF))/(A(IL,JC,NF)-A(IL,1,NF))
+      Z=Z+BETAJ*ZF
+C      PRINT *,J,ZF,ALFAJ,BETAJ
+   30 CONTINUE
+      FICM=Z/BETA
+C      PRINT 32,FICM
+   32 FORMAT(1H,25X,'FIbeta=',E11.4)
+C       CALL PRINT(N1,N2,N3,A,IN,JN,IV)
+       CALL PRINT1(N1,N2,N3,A,IV)
+      FIOP=A(1,JA,NF)-A(1,JZ1,NF)+0.013833*(A(1,JZ,NF)-A(1,1,NF))
+      FIOS=A(IC2,JA2,NF)-A(IC2,JA1,NF)+0.986167*
+     * (A(1,JZ,NF)-A(1,1,NF))
+      FIOP=FIOP*3.1416*2.
+      FIOS=FIOS*3.1416*2.
+      DOP=FIOS/FIOP
+C      PRINT * ,FIOP,FIOS,DOP
+      IF(NVAR.NE.NVARM) GO TO 90 
+      STOP
+      END

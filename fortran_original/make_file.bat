@@ -1,0 +1,1 @@
+gfortran -std=legacy *.FOR -o met21.exe
