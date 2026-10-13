@@ -83,7 +83,8 @@ def _fill_outside(Z, mask):
 
 def draw(ax, v, k, *, style="fill", mirror=True, stream=True, labels=False,
          nlevels=24, units="mm", fg="black", wall_color="#9a9a9a",
-         cmap=None, colorbar_cb=None, label=None, show_inlets=True):
+         cmap=None, colorbar_cb=None, label=None, show_inlets=True,
+         vrange=None):
     """Нарисовать поле A[:, :, k] варианта v на осях ax.
 
     style: "fill" - цветная заливка; "lines" - только изолинии (как в
@@ -120,7 +121,10 @@ def draw(ax, v, k, *, style="fill", mirror=True, stream=True, labels=False,
             c.set_clip_path(clip)
 
     mappable = None
-    if zin.size and np.ptp(zin) > 0:
+    if vrange is not None and vrange[1] > vrange[0]:
+        levels = MaxNLocator(nlevels).tick_values(*vrange)
+        Zf = np.clip(Zf, levels[0], levels[-1])
+    elif zin.size and np.ptp(zin) > 0:
         levels = MaxNLocator(nlevels).tick_values(zin.min(), zin.max())
     elif zin.size:
         levels = np.array([zin.min() - 1e-12, zin.min() + 1e-12])
@@ -175,3 +179,152 @@ def draw(ax, v, k, *, style="fill", mirror=True, stream=True, labels=False,
     if mappable is not None and colorbar_cb is not None:
         colorbar_cb(mappable, label)
     return mappable
+
+
+# ----------------------------------------------------------------------
+# Оформление и дополнительные графики
+# ----------------------------------------------------------------------
+THEMES = {
+    "light": dict(bg="#ffffff", fg="#12201d", muted="#4e605c", grid="#d3dbd9",
+                  accent="#0e7c6b", wall="#9aa5a2",
+                  series=["#0e7c6b", "#d9480f", "#1c7ed6", "#9c36b5",
+                          "#5c940d", "#c2255c", "#495057"]),
+    "dark": dict(bg="#18211f", fg="#e3ecea", muted="#93a7a3", grid="#26332f",
+                 accent="#2dd4bf", wall="#4c5b58",
+                 series=["#2dd4bf", "#ff922b", "#74c0fc", "#da77f2",
+                         "#a9e34b", "#f783ac", "#ced4da"]),
+}
+
+
+def style(fig, theme="light"):
+    """Покрасить фигуру и все её оси под тему."""
+    t = THEMES[theme]
+    fig.set_facecolor(t["bg"])
+    for ax in fig.axes:
+        ax.set_facecolor(t["bg"])
+        for s in ax.spines.values():
+            s.set_color(t["muted"])
+        ax.tick_params(colors=t["fg"], which="both")
+        ax.xaxis.label.set_color(t["fg"])
+        ax.yaxis.label.set_color(t["fg"])
+        ax.title.set_color(t["fg"])
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.get_frame().set_facecolor(t["bg"])
+            leg.get_frame().set_edgecolor(t["grid"])
+            for txt in leg.get_texts():
+                txt.set_color(t["fg"])
+    return t
+
+
+def draw_geometry(ax, v, *, grid=True, dims=True, fg="black",
+                  accent="#0e7c6b", gridcolor="#9aa5a2", mirror=False):
+    """Схема камеры с размерами (мм) и узлами расчётной сетки."""
+    poly = outline(v, 1000.0)
+    full = poly + [(px, -py) for px, py in reversed(poly)] if mirror else poly
+    clip = Polygon(full, closed=True, transform=ax.transData,
+                   facecolor="none", edgecolor="none")
+    ax.add_patch(clip)
+    IN, JN = v.grid["IN"], v.grid["JN"]
+    x = v.X1[1:IN + 1] * 1000
+    r = v.X2[1:JN + 1] * 1000
+    rmax = max(p[1] for p in poly)
+    if grid:
+        mask = node_mask(v)
+        for s in ((1, -1) if mirror else (1,)):
+            for j in range(JN):
+                ln, = ax.plot(x, s * np.full(IN, r[j]), color=gridcolor,
+                              lw=0.5, zorder=1)
+                ln.set_clip_path(clip)
+            for i in range(IN):
+                ln, = ax.plot([x[i], x[i]], [0, s * rmax], color=gridcolor,
+                              lw=0.5, zorder=1)
+                ln.set_clip_path(clip)
+            jj, ii = np.where(~mask)
+            ax.scatter(x[ii], s * r[jj], s=4, color=gridcolor, zorder=2)
+    ax.add_patch(Polygon(full, closed=True, fill=False, edgecolor=fg, lw=1.8,
+                         zorder=4))
+    colors = ["#2b8cbe", "#e6550d", "#2b8cbe"]
+    for (name, xi, r1, r2), c in zip(inlets(v, 1000.0), colors):
+        for s in ((1, -1) if mirror else (1,)):
+            ax.plot([xi, xi], [s * r1, s * r2], color=c, lw=5,
+                    solid_capstyle="butt", zorder=5)
+    if dims:
+        g = v.grid
+        X1, X2 = v.X1 * 1000, v.X2 * 1000
+        kw = dict(color=accent, fontsize=8, zorder=6)
+        arr = dict(arrowstyle="<->", color=accent, lw=0.9)
+
+        def hdim(x0, x1, y, text):
+            ax.annotate("", (x0, y), (x1, y), arrowprops=arr, zorder=6)
+            ax.text((x0 + x1) / 2, y + 0.04 * rmax, text, ha="center",
+                    va="bottom", **kw)
+
+        def vdim(xp, r1, text, side="left"):
+            ax.annotate("", (xp, 0), (xp, r1), arrowprops=arr, zorder=6)
+            dx = 0.4 if side == "left" else -0.4
+            ax.text(xp + dx, r1 * 0.55, text, ha=side, va="center", **kw)
+
+        top = rmax * 1.12
+        hdim(X1[1], X1[g["IC2"]], top, "Lprk %.1f" % X1[g["IC2"]])
+        hdim(X1[g["IC2"]], X1[g["IC1"]], top,
+             "Lks %.1f" % (X1[g["IC1"]] - X1[g["IC2"]]))
+        hdim(X1[g["IC1"]], X1[g["IC"]], top,
+             "конус %.1f" % (X1[g["IC"]] - X1[g["IC1"]]))
+        vdim(X1[g["IC2"]] * 0.5, X2[g["JA3"]], "Dprk %.1f" % (2 * X2[g["JA3"]]))
+        vdim((X1[g["IC2"]] + X1[g["IC1"]]) / 2, X2[g["JN"]],
+             "Dks %.1f" % (2 * X2[g["JN"]]))
+        vdim(X1[g["IC"]] - 0.6, X2[g["JC"]], "Dkr %.1f" % (2 * X2[g["JC"]]),
+             side="right")
+    ax.set_xlim(-1, x[-1] + 1)
+    ax.set_ylim(-rmax * 1.3 if mirror else -0.08 * rmax, rmax * 1.35)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x, мм")
+    ax.set_ylabel("r, мм")
+
+
+def draw_convergence(ax, variants, keys=("psi", "T", "CH4", "omega"),
+                     colors=None):
+    """Изменение величин за итерацию (отн.) в логарифмическом масштабе."""
+    names = {"psi": "ψ", "T": "T", "CH4": "CH4", "omega": "ω"}
+    styles = ["-", "--", ":", "-."]
+    for n, v in enumerate(variants):
+        h = v.history
+        if not h or len(h.get("iter", [])) == 0:
+            continue
+        for m, k in enumerate(keys):
+            y = np.asarray(h[k], dtype=float)
+            y = np.where(y > 0, y, np.nan)
+            c = colors[m % len(colors)] if colors else None
+            ax.semilogy(h["iter"], y, styles[n % len(styles)], color=c,
+                        lw=1.1, label="%s, α=%.2f" % (names[k], v.values["ALFA"]))
+    ax.set_xlabel("итерация")
+    ax.set_ylabel("макс. изменение за итерацию (отн.)")
+    ax.grid(True, which="both", alpha=0.25)
+
+
+def draw_curves(ax, curves, xlabel, ylabel, colors=None):
+    """curves: [(label, x, y), ...]."""
+    for n, (label, x, y) in enumerate(curves):
+        c = colors[n % len(colors)] if colors else None
+        ax.plot(x, y, "o-", color=c, lw=1.6, ms=4, label=label)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.25)
+    if len(curves) > 1 or (curves and curves[0][0]):
+        ax.legend(fontsize=8)
+
+
+def draw_difference(ax, x, r, D, units_scale=1000.0, label="", cmap="RdBu_r",
+                    colorbar_cb=None):
+    """Карта разности полей (симметричная шкала)."""
+    vmax = float(np.nanmax(np.abs(np.ma.filled(D, np.nan)))) if np.ma.count(D) else 1.0
+    vmax = vmax or 1.0
+    m = ax.pcolormesh(x * units_scale, r * units_scale, D, cmap=cmap,
+                      vmin=-vmax, vmax=vmax, shading="auto")
+    ax.set_aspect("equal")
+    ax.set_xlabel("x, мм")
+    ax.set_ylabel("r, мм")
+    if colorbar_cb:
+        colorbar_cb(m, label)
+    return m

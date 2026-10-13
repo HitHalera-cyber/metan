@@ -14,8 +14,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y xvfb python3-tk
       - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q tests
+      - run: xvfb-run -a python -m pytest -q tests
 
   windows-exe:
     needs: test
@@ -26,14 +27,29 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller
-      - run: python -m PyInstaller --noconfirm --windowed --name Metan metan_gui.pyw
-      - name: Smoke test of the built exe
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan --collect-data customtkinter --collect-data docx metan_gui.pyw
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic metan_classic.pyw
+      - name: Smoke test - calculation without window
         shell: pwsh
         run: |
           Start-Process -Wait -FilePath dist\Metan\Metan.exe -ArgumentList '--cli','-q','--set','NVARM=1','--set','NMAX=30','-o','smoke'
           if (-not (Test-Path smoke\shi10.dat)) { throw "Metan.exe did not produce shi10.dat" }
           Get-Content smoke\shi10.dat
+      - name: Smoke test - windows open and stay alive
+        shell: pwsh
+        run: |
+          foreach ($exe in @('dist\Metan\Metan.exe', 'dist\Metan-Classic\Metan-Classic.exe')) {
+            $p = Start-Process -FilePath $exe -PassThru
+            Start-Sleep -Seconds 25
+            if ($p.HasExited) { throw "$exe exited early with code $($p.ExitCode)" }
+            Stop-Process -Id $p.Id -Force
+            Write-Host "$exe OK"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: Metan-windows
           path: dist/Metan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metan-Classic-windows
+          path: dist/Metan-Classic

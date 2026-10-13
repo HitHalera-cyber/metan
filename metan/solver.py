@@ -60,6 +60,11 @@ class VariantResult:
     IMIN: np.ndarray
     IMAX: np.ndarray
     diverged: bool = False
+    # История сходимости: {"iter": [...], "omega": [...], "psi": [...],
+    # "T": [...], "CH4": [...]} - макс. изменение за итерацию (отн.)
+    history: dict = field(default_factory=dict)
+    # Кадры для анимации: [(NITER, A float32), ...]
+    snapshots: list = field(default_factory=list)
 
 
 @dataclass
@@ -89,11 +94,13 @@ class Solver:
     """
 
     def __init__(self, params=None, progress=None, cancel=None,
-                 progress_every=10):
+                 progress_every=10, track_history=True, snapshot_every=0):
         self.p = (params or Params()).validate()
         self.progress = progress
         self.cancel = cancel
         self.progress_every = progress_every
+        self.track_history = track_history
+        self.snapshot_every = snapshot_every
         self.F = np.float32 if self.p.precision == "float32" else np.float64
 
     # ------------------------------------------------------------------
@@ -378,6 +385,10 @@ class Solver:
         p = self.p
         self.NITER = 0
         last_cb = 0.0
+        self._hist = {"iter": [], "omega": [], "psi": [], "T": [], "CH4": []}
+        self._snaps = []
+        prev = self.A[:, :, (NW, NF, NT, NMFU1)].copy() if self.track_history \
+            else None
         while True:
             self.NITER += 1
             K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
@@ -401,7 +412,14 @@ class Solver:
                   self.IN, self.INM, self.JN, self.JNM, self.JA, self.JA1,
                   self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
                   self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
-                  self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1)
+                  self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
+                  self.IC2 + 1)
+            if self.track_history:
+                self._record(prev)
+            if (self.snapshot_every and self.NITER <= p.NMAX
+                    and (self.NITER % self.snapshot_every == 0
+                         or self.NITER == 1)):
+                self._snaps.append((self.NITER, self.A.astype(np.float32)))
             if self.cancel is not None and self.cancel():
                 raise Cancelled()
             if self.progress is not None and (
@@ -414,6 +432,28 @@ class Solver:
                                   p.NMAX)
             if self.NITER >= p.NMAX:
                 break
+
+    _HKEYS = (("omega", 0), ("psi", 1), ("T", 2), ("CH4", 3))
+
+    def _record(self, prev):
+        cur = self.A[:, :, (NW, NF, NT, NMFU1)]
+        h = self._hist
+        h["iter"].append(self.NITER)
+        for name, n in self._HKEYS:
+            a, b = cur[:, :, n], prev[:, :, n]
+            scale = float(np.max(np.abs(a)))
+            d = float(np.max(np.abs(a - b)))
+            h[name].append(d / scale if scale > 0 else d)
+        prev[...] = cur
+
+    # ------------------------------------------------------------------
+    def preview(self):
+        """Сетка и начальное поле 1-го варианта без расчёта (для проверки
+        геометрии). Возвращает VariantResult с NITER=0."""
+        with np.errstate(all="ignore"):
+            self._alloc()
+            self.NVAR = 1
+            return self._variant(None, preview=True)
 
     # ------------------------------------------------------------------
     def run(self):
@@ -432,7 +472,7 @@ class Solver:
         return res
 
     # ------------------------------------------------------------------
-    def _variant(self, res):
+    def _variant(self, res, preview=False):
         """Один проход от метки 90 до GO TO 90 в RK2.FOR."""
         F = self.F
         A, X1, X2, R, PKS = self.A, self.X1, self.X2, self.R, self.PKS
@@ -541,6 +581,26 @@ class Solver:
 
         self.init()
         VR = A[1, JZ1 + 1, NMU2] / R[JZ1 + 1]
+        if preview:
+            return VariantResult(
+                NVAR=1, values=dict(P=float(P), ALFA=float(ALFA), KM=float(AKM),
+                                    BETA=float(BETA), Ms=float(AMS),
+                                    Mok=float(AMO), Mgor=float(AMG),
+                                    Vgor=float(VINP), Vok=float(VINS),
+                                    Vcmw=float(VINS1)),
+                grid=dict(JZ=JZ, JZ1=JZ1, JA=JA, JA1=JA1, JA2=JA2, JA3=JA3,
+                          JC=JC, JN=JN, IC=IC, IC1=IC1, IC2=IC2, IN=IN),
+                geometry=dict(Dks=float(self.DKS), Lks=float(self.ALKS),
+                              Dkr=float(self.DKR), tgY=float(self.TGY),
+                              Dprk=float(self.DKAR), Lprk=float(self.DELKAR),
+                              Dook=float(self.DOOK), DELOK=float(self.DELOK),
+                              DOGOR=float(self.DOGOR), DELGOR=float(self.DELGOR),
+                              Dcmw=float(self.DCMB), Lpriw=float(ALPRIW),
+                              Fod=float(C), Fcmb=float(S1), Fgor=float(G1),
+                              Kwosp=float(AKW)),
+                NITER=0, fkomp_kind="", fkomp=float("nan"), extra={},
+                A=A.copy(), X1=X1.copy(), X2=X2.copy(), IMIN=self.IMIN.copy(),
+                IMAX=self.IMAX.copy())
 
         out = res.text10
         out.append("0" + " " * 25 + "RASHET N" + fmt_i(self.NVAR, 4))
@@ -661,7 +721,9 @@ class Solver:
             fkomp_kind=kind, fkomp=float(fk), extra=extra,
             A=A.copy(), X1=X1.copy(), X2=X2.copy(),
             IMIN=self.IMIN.copy(), IMAX=self.IMAX.copy(),
-            diverged=self.NITER > self.p.NMAX))
+            diverged=self.NITER > self.p.NMAX,
+            history={k: np.asarray(v) for k, v in self._hist.items()},
+            snapshots=self._snaps))
 
     def _print1(self, out):
         """SUBROUTINE PRINT1 (RK7.FOR): поля K=1..4 и координаты в shi20.dat."""

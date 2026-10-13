@@ -332,7 +332,8 @@ def _rel_change(new, old):
 def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
         AE, AW, AN, AS, AE1, AW1, AN1, AS1, UKS, FKS, TKS, RSDU,
         IN, INM, JN, JNM, JA, JA1, JA2, JA3, JB, JB1, JC, JC1, JZ, JZ1,
-        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1):
+        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2):
+    # IGN_I2 - последний узел зоны поджига по длине (в оригинале 11 = IC2+1)
     # ---------- уравнение для вихря (NW) ----------
     if not (NITER <= NPRINT and NVAR == 1):
         RL = 0.1
@@ -530,7 +531,7 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
             IM = IC - 1
         for I in range(IL, IM + 1):
             react = True
-            if NITER == 18 and I >= 3 and I <= 11 and J > JZ and J < JA1:
+            if NITER == 18 and I >= 3 and I <= IGN_I2 and J > JZ and J < JA1:
                 react = True        # GO TO 33: принудительное зажигание
             elif A[I, J, NT] < ROM1:
                 react = False       # GO TO 304

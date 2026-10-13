@@ -314,3 +314,27 @@ HELP = {
         "Имя файла полей (unit 9): для каждого варианта и каждого узла - "
         "вихрь, функция тока, CH4, O2 и координаты X1, X2."),
 }
+
+
+def geometry_warnings(p):
+    """Проверка геометрии до расчёта: список понятных предупреждений."""
+    w = []
+    if not p.DCMB < p.DOGOR:
+        w.append("Центральная струя (Dcmw) должна быть меньше DOGOR.")
+    if not p.DOGOR + 2 * p.DELGOR < p.DKAR:
+        w.append("Щель горючего (DOGOR + 2·DELGOR) не помещается в предкамеру Dprk.")
+    if not p.DKAR < p.DOOK:
+        w.append("Щель окислителя Dook должна быть больше диаметра предкамеры Dprk.")
+    if not p.DOOK + 2 * p.DELOK < p.DKS:
+        w.append("Щель окислителя (Dook + 2·δok) не помещается в камеру Dks.")
+    if not p.DKR < p.DKS:
+        w.append("Критическое сечение Dkr должно быть меньше Dks.")
+    if p.DKR > p.DKAR:
+        w.append("Dkr больше диаметра предкамеры - необычная схема, проверьте.")
+    for a, b, name in ((1, p.JZ, "оси и JZ"), (p.JZ, p.JZ1, "JZ и JZ1"),
+                       (p.JZ1, p.JA, "JZ1 и JA"), (p.JA, p.JA3, "JA и JA3"),
+                       (p.JA3, p.JA1, "JA3 и JA1"), (p.JA1, p.JA2, "JA1 и JA2"),
+                       (p.JA2, p.JN, "JA2 и JN")):
+        if b - a < 1:
+            w.append("Между %s нет ни одного интервала сетки." % name)
+    return w

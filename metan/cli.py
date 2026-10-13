@@ -4,7 +4,8 @@
     python -m metan -p params.json -o out
     python -m metan --set ALFA=0.7 --set NVARM=3 --precision float32
     python -m metan --dump-params params.json   # сохранить параметры по умолчанию
-    python -m metan gui                  # десктопная программа
+    python -m metan gui                  # десктопная программа (новая)
+    python -m metan gui-classic          # прежняя версия интерфейса
 """
 
 import argparse
@@ -21,8 +22,11 @@ def _progress(nvar, nvarm, niter, nmax):
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "gui":
-        from .gui import main as gui_main
-        return gui_main()
+        from .app import main as gui_main
+        return gui_main("dark" if "--dark" in argv else "light")
+    if argv and argv[0] == "gui-classic":
+        from .gui_classic import main as classic_main
+        return classic_main()
 
     ap = argparse.ArgumentParser(prog="metan",
                                  description="Расчёт горения метана (перевод met21 с Фортрана)")
