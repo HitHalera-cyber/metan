@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-DEFAULTS = {"mode": "light", "scale": 1.0, "splash": "rocket",
+DEFAULTS = {"mode": "light", "scale": 1.0, "splash": "dawn",
             "right_panel": None}   # None - по размеру экрана
 
 

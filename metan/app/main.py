@@ -463,7 +463,7 @@ class App(ctk.CTk):
                                command=lambda v=v: self.set_scale(v))
         m.add_cascade(label="Масштаб интерфейса", menu=sm)
         spm = tk.Menu(m, tearoff=False, font=(SANS, 11))
-        self._splash_var = tk.StringVar(value=self.cfg.get("splash", "rocket"))
+        self._splash_var = tk.StringVar(value=self.cfg.get("splash", "dawn"))
         for key, (title, _) in STORIES.items():
             spm.add_radiobutton(label=title, value=key, variable=self._splash_var,
                                 command=lambda k=key: self._set_cfg("splash", k))
@@ -539,6 +539,6 @@ def main(mode=None):
     from . import config
     from .splash import run_splash
     cfg = config.load()
-    run_splash(cfg.get("splash", "rocket"))
+    run_splash(cfg.get("splash", "dawn"))
     App(mode, cfg).mainloop()
     return 0

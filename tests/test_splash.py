@@ -6,7 +6,7 @@ def test_stories_render(tmp_path):
         st = cls()
         for k in range(6):
             im = st.frame(st.length * k / 6)
-            assert im.size == (splash.W, splash.H)
+            assert im.size == getattr(st, "size", (splash.W, splash.H))
     p = splash.render_gif("fortran", str(tmp_path / "f.gif"), scale=1, fps=4)
     assert (tmp_path / "f.gif").stat().st_size > 1000 and p
 

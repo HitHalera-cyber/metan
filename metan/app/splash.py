@@ -460,18 +460,29 @@ class FortranStory:
         return img
 
 
-STORIES = {
-    "rocket": ("Старт ракеты", RocketStory),
+STORIES = {}
+
+
+def _register():
+    from .splash_stories import STORIES2
+    STORIES.update(STORIES2)
+    STORIES.update(OLD_STORIES)
+
+
+OLD_STORIES = {
+    "rocket": ("Старт ракеты (простая)", RocketStory),
     "chamber": ("Камера сгорания", ChamberStory),
     "planet": ("Полёт к планете", PlanetStory),
     "fortran": ("Из Фортрана в Питон", FortranStory),
 }
+_register()
 
 
 def render_gif(key, path, scale=3, fps=FPS):
     story = STORIES[key][1]()
+    sw, sh = getattr(story, "size", (W, H))
     n = int(story.length * fps)
-    frames = [story.frame(i / fps).resize((W * scale, H * scale), Image.NEAREST)
+    frames = [story.frame(i / fps).resize((sw * scale, sh * scale), Image.NEAREST)
               .convert("P", palette=Image.ADAPTIVE, colors=128) for i in range(n)]
     frames[0].save(path, save_all=True, append_images=frames[1:],
                    duration=int(1000 / fps), loop=0, optimize=True)
@@ -511,8 +522,9 @@ def run_splash(key="rocket", min_time=4.0, max_time=180):
     root.overrideredirect(True)
     root.configure(background="#0d1312")
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    scale = SCALE if sw >= 1100 else 3
-    w, h = W * scale, H * scale + 56
+    fw, fh = getattr(story, "size", (W, H))
+    scale = max(2, min(SCALE, int(min(sw * 0.6 / fw, sh * 0.6 / fh))))
+    w, h = fw * scale, fh * scale + 56
     root.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
     lab = tk.Label(root, borderwidth=0, background="#0d1312")
     lab.pack()
@@ -542,7 +554,8 @@ def run_splash(key="rocket", min_time=4.0, max_time=180):
 
     def tick():
         t = time.monotonic() - t0
-        img = story.frame(t % story.length).resize((W * scale, H * scale), Image.NEAREST)
+        img = story.frame(t % story.length).resize((fw * scale, fh * scale),
+                                                    Image.NEAREST)
         holder["img"] = ImageTk.PhotoImage(img)
         lab.configure(image=holder["img"])
         status.set(state["msg"])
