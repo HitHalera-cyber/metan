@@ -539,6 +539,7 @@ def main(mode=None):
     from . import config
     from .splash import run_splash
     cfg = config.load()
-    run_splash(cfg.get("splash", "city"))
+    run_splash(cfg.get("splash", "city"),
+               mode=mode or cfg.get("mode", "light"))
     App(mode, cfg).mainloop()
     return 0

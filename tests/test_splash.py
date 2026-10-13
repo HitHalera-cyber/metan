@@ -19,3 +19,11 @@ def test_assets_present():
     from metan.app.assets import icon_paths, manual_path
     ico, png = icon_paths()
     assert ico and png and manual_path()
+
+
+def test_city_both_themes():
+    from metan.app.splash_stories import CityStory
+    a = CityStory("dark").frame(5.0)
+    b = CityStory("light").frame(5.0)
+    # днём небо заметно светлее, чем ночью
+    assert sum(b.getpixel((128, 5))) > sum(a.getpixel((128, 5))) + 200

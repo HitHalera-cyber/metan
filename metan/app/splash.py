@@ -478,8 +478,16 @@ OLD_STORIES = {
 _register()
 
 
-def render_gif(key, path, scale=3, fps=FPS):
-    story = STORIES[key][1]()
+def make_story(key, mode="dark"):
+    cls = STORIES[key][1]
+    try:
+        return cls(mode=mode)
+    except TypeError:
+        return cls()
+
+
+def render_gif(key, path, scale=3, fps=FPS, mode="dark"):
+    story = make_story(key, mode)
     sw, sh = getattr(story, "size", (W, H))
     n = int(story.length * fps)
     frames = [story.frame(i / fps).resize((sw * scale, sh * scale), Image.NEAREST)
@@ -505,7 +513,7 @@ def _warmup(status):
         importlib.import_module(mod)
 
 
-def run_splash(key="rocket", min_time=4.0, max_time=180):
+def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
     """Показать заставку, пока идёт подготовка. key="none" - без заставки
     (подготовка всё равно выполняется)."""
     if key not in STORIES:
@@ -517,24 +525,29 @@ def run_splash(key="rocket", min_time=4.0, max_time=180):
     import tkinter as tk
     from PIL import ImageTk
 
-    story = STORIES[key][1]()
+    story = make_story(key, mode)
+    light = mode == "light"
+    BG = "#eef1f0" if light else "#0d1312"
+    MUTED = "#4e605c" if light else "#93a7a3"
+    LINE = "#d3dbd9" if light else "#26332f"
+    ACC = "#0e7c6b" if light else "#2dd4bf"
     root = tk.Tk()
     root.overrideredirect(True)
-    root.configure(background="#0d1312")
+    root.configure(background=BG)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     fw, fh = getattr(story, "size", (W, H))
     scale = max(2, min(SCALE, int(min(sw * 0.6 / fw, sh * 0.6 / fh))))
     w, h = fw * scale, fh * scale + 56
     root.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 3))
-    lab = tk.Label(root, borderwidth=0, background="#0d1312")
+    lab = tk.Label(root, borderwidth=0, background=BG)
     lab.pack()
     status = tk.StringVar(value="Запуск…")
-    tk.Label(root, textvariable=status, background="#0d1312", foreground="#93a7a3",
+    tk.Label(root, textvariable=status, background=BG, foreground=MUTED,
              font=("Consolas", 10)).pack(pady=(8, 2))
-    bar = tk.Canvas(root, width=w - 40, height=4, background="#26332f",
+    bar = tk.Canvas(root, width=w - 40, height=4, background=LINE,
                     highlightthickness=0)
     bar.pack()
-    fill = bar.create_rectangle(0, 0, 0, 4, fill="#2dd4bf", width=0)
+    fill = bar.create_rectangle(0, 0, 0, 4, fill=ACC, width=0)
     state = {"done": False, "msg": "Запуск…", "step": 0}
 
     def set_status(s):

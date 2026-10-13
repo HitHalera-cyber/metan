@@ -458,22 +458,43 @@ class BlueprintStory:
 
 # ======================================================================
 class CityStory:
+    """Город у реки и старт ракеты. mode="dark" - ночь, "light" - день."""
     title = "Ночной город"
     length = 11.0
     size = (W2, H2)
     RIVER = 108
 
-    def __init__(self):
+    NIGHT = dict(sky=[(0, (6, 8, 26)), (0.5, (22, 22, 60)), (0.75, (64, 40, 86)),
+                      (1, (70, 44, 90))],
+                 hills=(24, 22, 46), bld=[(14, 14, 30)], win_on=0.45,
+                 win=[(255, 214, 120), (150, 220, 255)], water=(8, 10, 24),
+                 refl=0.55, bridge=(40, 40, 66), car=((255, 250, 220), (255, 70, 60)),
+                 text=TEAL, sub=(180, 190, 210), tower=(30, 30, 50))
+    DAY = dict(sky=[(0, (92, 156, 222)), (0.55, (150, 196, 236)), (0.85, (206, 226, 242)),
+                    (1, (232, 238, 238))],
+               hills=(150, 176, 172),
+               bld=[(112, 130, 140), (132, 148, 156), (96, 116, 128), (150, 162, 166)],
+               win_on=0.25, win=[(206, 230, 246), (236, 246, 252)], water=(120, 166, 200),
+               refl=0.45, bridge=(104, 114, 124), car=((40, 44, 50), (200, 60, 50)),
+               text=(14, 124, 107), sub=(60, 80, 90), tower=(100, 112, 124))
+
+    def __init__(self, mode="dark"):
+        self.mode = mode
+        self.c = self.DAY if mode == "light" else self.NIGHT
+        if mode == "light":
+            self.title = "Город днём"
         r = random.Random(11)
         self.buildings = []
         x = -4
         while x < W2:
             w = r.randint(8, 22)
             h = r.randint(14, 52)
-            self.buildings.append((x, w, h, r.random()))
+            self.buildings.append((x, w, h, r.random(), r.randrange(4)))
             x += w + r.randint(0, 3)
         self.windows = [(r.random(), r.random()) for _ in range(2000)]
         self.stars = [(r.randrange(W2), r.randrange(70), r.random() * 6) for _ in range(90)]
+        self.clouds = [(r.uniform(0, W2 + 80), r.uniform(10, 60), r.uniform(8, 18),
+                        r.uniform(2, 6)) for _ in range(7)]
 
     def path(self, s):
         """Траектория ракеты (s от 0 до 1): старт за городом справа, разворот влево."""
@@ -481,68 +502,116 @@ class CityStory:
         y = 92 - 92 * (1 - (1 - s) ** 1.8)
         return x, y
 
-    def frame(self, t):
-        img = Image.new("RGB", (W2, H2))
-        gradient(img, [(0, (6, 8, 26)), (0.5, (22, 22, 60)), (0.75, (64, 40, 86)),
-                       (1, (70, 44, 90))], 0, self.RIVER)
-        d = ImageDraw.Draw(img)
-        for sx, sy, ph in self.stars:
-            c = int(200 * (0.5 + 0.5 * math.sin(t * 2 + ph)))
-            d.point((sx, sy), fill=(c, c, c))
-        d.ellipse((30, 16, 44, 30), fill=(236, 232, 214))
-        d.ellipse((34, 14, 48, 28), fill=(22, 22, 60))
-        # ракета и след
+    def _sky(self, img, d, t):
+        c = self.c
+        gradient(img, c["sky"], 0, self.RIVER)
+        if self.mode == "light":
+            # солнце с ореолом
+            for rr, col in ((16, (236, 240, 230)), (11, (255, 246, 214)), (7, (255, 252, 236))):
+                d.ellipse((40 - rr, 26 - rr, 40 + rr, 26 + rr), fill=col)
+            # облака плывут
+            for cx, cy, cw, sp in self.clouds:
+                x = (cx + t * sp) % (W2 + 80) - 40
+                for k in range(4):
+                    rr = cw * (0.45 + 0.15 * ((k * 7) % 3))
+                    px = x + k * cw * 0.45
+                    d.ellipse((px - rr, cy - rr * 0.6, px + rr, cy + rr * 0.6),
+                              fill=(248, 250, 252))
+                d.line((x - cw * 0.3, cy + cw * 0.3, x + cw * 1.6, cy + cw * 0.3),
+                       fill=(226, 234, 242))
+        else:
+            for sx, sy, ph in self.stars:
+                v = int(200 * (0.5 + 0.5 * math.sin(t * 2 + ph)))
+                d.point((sx, sy), fill=(v, v, v))
+            d.ellipse((30, 16, 44, 30), fill=(236, 232, 214))
+            d.ellipse((34, 14, 48, 28), fill=(22, 22, 60))
+
+    def _rocket(self, d, t):
         launch = 1.8
-        if t > launch:
-            s_now = min(1.0, (t - launch) / 6.0)
-            prev = None
-            n = int(s_now * 160)
-            for i in range(n + 1):
-                s = i / 160
-                x, y = self.path(s)
-                age = s_now - s
+        if t <= launch:
+            return
+        s_now = min(1.0, (t - launch) / 6.0)
+        n = int(s_now * 160)
+        light = self.mode == "light"
+        prev = None
+        for i in range(n + 1):
+            s = i / 160
+            x, y = self.path(s)
+            age = s_now - s
+            if light:
+                # белый дымный след, расплывается со временем
+                rr = 0.8 + age * 9
+                sh = int(255 - 30 * min(1, age * 1.5))
+                col = mix((sh, sh, sh), self.c["sky"][1][1], min(1, age * 1.1))
+                if i % 2 == 0:
+                    d.ellipse((x - rr, y - rr, x + rr, y + rr), fill=col)
+            else:
                 if s < 0.62:
                     col = mix((255, 200, 120), (64, 40, 86), min(1, age * 1.4))
                 else:
                     col = mix((150, 200, 255), (30, 30, 70), min(1, age * 1.6))
                 if prev:
                     d.line((prev[0], prev[1], x, y), fill=col, width=2 if age < 0.08 else 1)
-                prev = (x, y)
-            x, y = self.path(s_now)
+            prev = (x, y)
+        x, y = self.path(s_now)
+        if light:
+            d.ellipse((x - 1, y - 1, x + 1, y + 1), fill=(60, 64, 70))
+            d.ellipse((x - 1, y + 1, x + 2, y + 3), fill=(255, 150, 60))
+        else:
             glow = (255, 240, 200) if s_now < 0.62 else (200, 230, 255)
             d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=glow)
-            if 0.6 < s_now < 0.68:
-                for a in range(8):
-                    ang = a * 0.785
-                    d.point((x + 40 * math.cos(ang) * (s_now - 0.6) * 4,
-                             y + 40 * math.sin(ang) * (s_now - 0.6) * 4), fill=(255, 255, 255))
+        if 0.6 < s_now < 0.68:
+            for a in range(8):
+                ang = a * 0.785
+                q = (s_now - 0.6) * 4
+                d.point((x + 40 * math.cos(ang) * q, y + 40 * math.sin(ang) * q),
+                        fill=(255, 255, 255) if not light else (255, 170, 80))
+
+    def frame(self, t):
+        c = self.c
+        img = Image.new("RGB", (W2, H2))
+        d = ImageDraw.Draw(img)
+        self._sky(img, d, t)
+        d = ImageDraw.Draw(img)
+        self._rocket(d, t)
         # холмы и город
         for x in range(W2):
             hy = 82 + int(6 * math.sin(x * 0.03) + 3 * math.sin(x * 0.11))
-            d.line((x, hy, x, self.RIVER), fill=(24, 22, 46))
+            d.line((x, hy, x, self.RIVER), fill=c["hills"])
         wi = 0
-        for bx, bw, bh, ph in self.buildings:
+        for bx, bw, bh, ph, tone in self.buildings:
             top = self.RIVER - bh
-            d.rectangle((bx, top, bx + bw - 1, self.RIVER - 1), fill=(14, 14, 30))
+            col = c["bld"][tone % len(c["bld"])]
+            d.rectangle((bx, top, bx + bw - 1, self.RIVER - 1), fill=col)
+            if self.mode == "light":
+                d.line((bx, top, bx, self.RIVER - 1), fill=mix(col, (255, 255, 255), 0.25))
+                d.line((bx + bw - 1, top, bx + bw - 1, self.RIVER - 1), fill=mix(col, (0, 0, 0), 0.2))
             for yy in range(top + 3, self.RIVER - 3, 4):
                 for xx in range(bx + 2, bx + bw - 2, 3):
                     a, b = self.windows[wi % len(self.windows)]
                     wi += 1
-                    on = a > 0.45 or (a > 0.3 and math.sin(t * 1.5 + b * 20) > 0.6)
-                    if on:
-                        d.point((xx, yy), fill=(255, 214, 120) if b > 0.3 else (150, 220, 255))
+                    if self.mode == "light":
+                        # блики стёкол; иногда «пробегает» отражение солнца
+                        glint = math.sin(t * 2 - xx * 0.08 + b * 3) > 0.92
+                        wc = (255, 255, 240) if glint else (c["win"][0] if a > c["win_on"]
+                                                            else mix(col, (40, 60, 80), 0.4))
+                        d.point((xx, yy), fill=wc)
+                    else:
+                        on = a > c["win_on"] or (a > 0.3 and math.sin(t * 1.5 + b * 20) > 0.6)
+                        if on:
+                            d.point((xx, yy), fill=c["win"][0] if b > 0.3 else c["win"][1])
         # телебашня
-        d.line((120, self.RIVER - 70, 120, self.RIVER - 1), fill=(30, 30, 50))
-        d.rectangle((117, self.RIVER - 50, 123, self.RIVER - 46), fill=(30, 30, 50))
+        d.line((120, self.RIVER - 70, 120, self.RIVER - 1), fill=c["tower"])
+        d.rectangle((117, self.RIVER - 50, 123, self.RIVER - 46), fill=c["tower"])
         if int(t * 2) % 2:
             d.point((120, self.RIVER - 71), fill=(255, 60, 60))
         # мост и машины
-        d.line((0, self.RIVER - 4, W2, self.RIVER - 4), fill=(40, 40, 66))
+        d.line((0, self.RIVER - 4, W2, self.RIVER - 4), fill=c["bridge"])
         for i in range(10):
             x = (i * 37 + t * 40) % (W2 + 20) - 10
-            d.point((x, self.RIVER - 5), fill=(255, 250, 220))
+            d.point((x, self.RIVER - 5), fill=c["car"][0])
             x2 = W2 - ((i * 53 + t * 34) % (W2 + 20)) + 10
-            d.point((x2, self.RIVER - 6), fill=(255, 70, 60))
+            d.point((x2, self.RIVER - 6), fill=c["car"][1])
         # отражение в реке
         px = img.load()
         for y in range(self.RIVER, H2):
@@ -551,12 +620,17 @@ class CityStory:
             off = int(2 * math.sin(y * 0.7 + t * 4))
             for x in range(W2):
                 sx = min(W2 - 1, max(0, x + off))
-                c = px[sx, max(0, src)]
-                px[x, y] = mix((8, 10, 24), c, 0.55 - dy * 0.012)
-        text(d, "METAN", 8, 128, TEAL, 2)
+                col = px[sx, max(0, src)]
+                px[x, y] = mix(c["water"], col, c["refl"] - dy * 0.012)
+        if self.mode == "light":
+            for i in range(12):
+                gx = int((i * 41 + t * 12) % W2)
+                gy = self.RIVER + 4 + (i * 7) % 30
+                d.line((gx, gy, gx + 3, gy), fill=(236, 244, 250))
+        text(d, "METAN", 8, 128, c["text"], 2)
         if t > 8.5:
             s = "CH4 + O2"
-            text(d, s, W2 - text_w(s) - 8, 132, (180, 190, 210))
+            text(d, s, W2 - text_w(s) - 8, 132, c["sub"])
         return img
 
 
