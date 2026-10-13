@@ -11,7 +11,6 @@ import traceback
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-import numpy as np
 import matplotlib
 
 matplotlib.use("TkAgg")
@@ -199,9 +198,15 @@ class App(tk.Tk):
             ttk.Label(fr, text=meta["unit"], width=4).grid(row=r, column=2,
                                                           sticky="w", padx=2)
             tip = meta["help"] or ""
-            Tooltip(lab, "%s\n\nИмя в программе: %s" % (tip, name) if tip
-                    else "Имя в программе: %s" % name)
-            Tooltip(w, tip)
+            full = "%s\n\nИмя в программе: %s" % (tip, name)
+            Tooltip(lab, full)
+            Tooltip(w, full)
+            title = meta["label"]
+            for wid in (lab, w):
+                wid.bind("<Enter>", lambda e, t=title, h=full:
+                         self._show_help(t, h), add="+")
+            w.bind("<FocusIn>", lambda e, t=title, h=full:
+                   self._show_help(t, h), add="+")
             v.trace_add("write", lambda *a: self._update_alfa_preview())
             self.vars[name] = v
             rows[meta["group"]] = r + 1
@@ -209,6 +214,18 @@ class App(tk.Tk):
         self.alfa_lbl = ttk.Label(parent, text="", foreground="#1f4e8c",
                                   wraplength=420, justify="left")
         self.alfa_lbl.pack(anchor="w", pady=(0, 4))
+
+        hf = ttk.LabelFrame(parent, text="Справка по параметру", padding=4)
+        hf.pack(fill="x", pady=(0, 6))
+        self.help_title = ttk.Label(hf, text="Наведите мышь на параметр",
+                                    font=("TkDefaultFont", 9, "bold"),
+                                    wraplength=410, justify="left")
+        self.help_title.pack(anchor="w")
+        self.help_text = tk.Text(hf, height=10, wrap="word", relief="flat",
+                                 borderwidth=0, font=("TkDefaultFont", 9),
+                                 background=self.cget("background"))
+        self.help_text.pack(fill="x")
+        self.help_text.configure(state="disabled")
 
         b = ttk.Frame(parent)
         b.pack(fill="x")
@@ -241,6 +258,13 @@ class App(tk.Tk):
         self.status = ttk.Label(parent, text="Готово к расчёту",
                                 wraplength=420)
         self.status.pack(anchor="w")
+
+    def _show_help(self, title, text):
+        self.help_title.configure(text=title)
+        self.help_text.configure(state="normal")
+        self.help_text.delete("1.0", "end")
+        self.help_text.insert("1.0", text)
+        self.help_text.configure(state="disabled")
 
     def _load_into_form(self, p):
         for k, v in p.to_dict().items():
@@ -355,16 +379,32 @@ class App(tk.Tk):
             values=[VAR_NAMES[k] for k in self.field_keys])
         self.field_cb.current(0)
         self.field_cb.pack(side="left", padx=(2, 10))
-        self.mirror = tk.BooleanVar(value=True)
-        self.stream = tk.BooleanVar(value=True)
-        ttk.Checkbutton(ctl, text="Зеркально", variable=self.mirror,
-                        command=self.redraw).pack(side="left")
-        ttk.Checkbutton(ctl, text="Линии тока", variable=self.stream,
-                        command=self.redraw).pack(side="left", padx=6)
         ttk.Button(ctl, text="Сохранить рисунок…",
                    command=self.save_figure).pack(side="right")
-        self.var_cb.bind("<<ComboboxSelected>>", lambda e: self.redraw())
-        self.field_cb.bind("<<ComboboxSelected>>", lambda e: self.redraw())
+        ctl2 = ttk.Frame(g)
+        ctl2.pack(fill="x", pady=(4, 0))
+        ttk.Label(ctl2, text="Вид:").pack(side="left")
+        self.styles = [("fill", "Цветная заливка"),
+                       ("lines", "Изолинии (как в методичке)"),
+                       ("both", "Заливка + изолинии")]
+        self.style_cb = ttk.Combobox(ctl2, state="readonly", width=26,
+                                     values=[t for _, t in self.styles])
+        self.style_cb.current(0)
+        self.style_cb.pack(side="left", padx=(2, 10))
+        self.mirror = tk.BooleanVar(value=True)
+        self.stream = tk.BooleanVar(value=True)
+        self.labels = tk.BooleanVar(value=False)
+        self.units_m = tk.BooleanVar(value=False)
+        for text, var in (("Зеркально", self.mirror),
+                          ("Линии тока", self.stream),
+                          ("Подписи изолиний", self.labels),
+                          ("Оси в метрах", self.units_m)):
+            ttk.Checkbutton(ctl2, text=text, variable=var,
+                            command=self.redraw).pack(side="left", padx=(0, 8))
+        ttk.Button(ctl2, text="Как в методичке",
+                   command=self._book_view).pack(side="right")
+        for cb in (self.var_cb, self.field_cb, self.style_cb):
+            cb.bind("<<ComboboxSelected>>", lambda e: self.redraw())
 
         self.fig = Figure(figsize=(8, 5), dpi=100)
         self.canvas = FigureCanvasTkAgg(self.fig, master=g)
@@ -403,63 +443,40 @@ class App(tk.Tk):
         self.res_nb.select(1)
         self.redraw()
 
+    def _book_view(self):
+        """Функция тока изолиниями, верхняя половина, оси в метрах."""
+        self.field_cb.current(self.field_keys.index(2))
+        self.style_cb.current(1)
+        self.mirror.set(False)
+        self.labels.set(True)
+        self.units_m.set(True)
+        self.redraw()
+
     def redraw(self):
         if not self.results or not self.results.variants:
             return
         from .solver import VAR_NAMES
+        from . import plotting
         v = self.results.variants[max(self.var_cb.current(), 0)]
         k = self.field_keys[max(self.field_cb.current(), 0)]
-        IN, JN = v.grid["IN"], v.grid["JN"]
-        x = v.X1[1:IN + 1] * 1000.0
-        y = v.X2[1:JN + 1] * 1000.0
-        Z = np.array(v.A[1:IN + 1, 1:JN + 1, k], dtype=float).T
-        F = np.array(v.A[1:IN + 1, 1:JN + 1, 2], dtype=float).T
-        # маска: узлы вне расчётной области (в стенках)
-        mask = np.zeros_like(Z, dtype=bool)
-        for j in range(1, JN + 1):
-            il = v.IMIN[j] - 1
-            im = v.IMAX[j] + 1
-            if j <= v.grid["JC"]:
-                im = IN
-            for i in range(1, IN + 1):
-                if i < il or i > im:
-                    mask[j - 1, i - 1] = True
-        Z = np.ma.array(Z, mask=mask | ~np.isfinite(Z))
-        F = np.ma.array(F, mask=mask | ~np.isfinite(F))
-        wall = np.array([y[np.where(~mask[:, i])[0].max()]
-                         if (~mask[:, i]).any() else np.nan
-                         for i in range(IN)])
-        if self.mirror.get():
-            y = np.concatenate([-y[:0:-1], y])
-            Z = np.ma.concatenate([Z[:0:-1], Z])
-            F = np.ma.concatenate([F[:0:-1], F])
+        style = self.styles[max(self.style_cb.current(), 0)][0]
         self.fig.clear()
         ax = self.fig.add_subplot(111)
-        cmap = "turbo" if k == 13 else ("RdBu_r" if k in (1, 2) else "viridis")
         try:
-            cs = ax.contourf(x, y, Z, levels=30, cmap=cmap)
-            self.fig.colorbar(cs, ax=ax, label=VAR_NAMES[k])
-        except (ValueError, TypeError):
-            ax.text(0.5, 0.5, "Поле не определено (NaN/Inf)", ha="center",
-                    transform=ax.transAxes)
-        if self.stream.get():
-            try:
-                ax.contour(x, y, F, levels=20, colors="k", linewidths=0.5,
-                           alpha=0.6)
-            except (ValueError, TypeError):
-                pass
-        ax.plot(x, wall, color="k", lw=2)
-        if self.mirror.get():
-            ax.plot(x, -wall, color="k", lw=2)
-        else:
-            ax.axhline(0, color="k", lw=0.8, ls="--")
-        ax.set_xlabel("x, мм")
-        ax.set_ylabel("r, мм")
-        ax.set_aspect("equal", adjustable="datalim")
+            plotting.draw(
+                ax, v, k, style=style, mirror=self.mirror.get(),
+                stream=self.stream.get(), labels=self.labels.get(),
+                units="m" if self.units_m.get() else "mm",
+                label=VAR_NAMES[k],
+                colorbar_cb=lambda m, lab: self.fig.colorbar(
+                    m, ax=ax, label=lab, shrink=0.85))
+        except Exception as e:  # поле с NaN/Inf и т.п.
+            ax.text(0.5, 0.5, "Не удалось построить поле:\n%s" % e,
+                    ha="center", va="center", transform=ax.transAxes)
         val = v.values
-        ax.set_title("Вариант %d: ALFA=%.2f, Fkomp(%s)=%.5f%s" % (
-            v.NVAR, val["ALFA"], v.fkomp_kind, v.fkomp,
-            "  — РАСХОДИМОСТЬ" if v.diverged else ""))
+        ax.set_title("%s — вариант %d: α=%.2f, Fkomp(%s)=%.5f%s" % (
+            VAR_NAMES[k], v.NVAR, val["ALFA"], v.fkomp_kind, v.fkomp,
+            "  — РАСХОДИМОСТЬ" if v.diverged else ""), fontsize=10)
         self.fig.tight_layout()
         self.canvas.draw_idle()
 
