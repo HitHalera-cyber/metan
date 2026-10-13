@@ -54,16 +54,88 @@ def option(master, values, command=None, variable=None, width=200):
                              corner_radius=8)
 
 
-def segmented(master, values, command=None, variable=None):
-    return ctk.CTkSegmentedButton(master, values=values, command=command,
-                                  variable=variable, height=30,
-                                  fg_color=c("panel"),
-                                  selected_color=c("accent"),
-                                  selected_hover_color=c("accent_hover"),
-                                  unselected_color=c("card"),
-                                  unselected_hover_color=c("accent_soft"),
-                                  text_color=c("fg"), font=font(12),
-                                  corner_radius=15)
+class PillGroup(ctk.CTkFrame):
+    """Группа кнопок-плашек с одной выбранной (замена CTkSegmentedButton).
+
+    Каждая кнопка подстраивается под длину текста при любом масштабе
+    Windows; при wrap=True ряд переносится, если не хватает ширины.
+    """
+
+    def __init__(self, master, values, command=None, variable=None, wrap=False,
+                 size=12):
+        super().__init__(master, fg_color="transparent")
+        self.command = command
+        self.var = variable or tk.StringVar(value=values[0])
+        self.wrap = wrap
+        self.buttons = {}
+        self.rows = []
+        for v in values:
+            b = ctk.CTkButton(self, text=v, width=20, height=32,
+                              corner_radius=16, border_width=1,
+                              font=font(size), command=lambda v=v: self._click(v))
+            self.buttons[v] = b
+        self._layout_width = None
+        if wrap:
+            self._place_all(10 ** 6)
+        else:
+            for b in self.buttons.values():
+                b.pack(side="left", padx=(0, 6))
+        self.var.trace_add("write", lambda *a: self._paint())
+        self._paint()
+        if wrap:
+            self.bind("<Configure>", self._on_resize)
+
+    def _click(self, v):
+        self.var.set(v)
+        if self.command:
+            self.command(v)
+
+    def _paint(self):
+        cur = self.var.get()
+        for v, b in self.buttons.items():
+            sel = v == cur
+            b.configure(fg_color=c("accent") if sel else c("card"),
+                        hover_color=c("accent_hover") if sel else c("accent_soft"),
+                        text_color=c("on_accent") if sel else c("fg"),
+                        border_color=c("accent") if sel else c("line"))
+
+    def _place_all(self, avail):
+        """Разложить кнопки по рядам; каждый ряд - отдельная строка без
+        выравнивания по колонкам."""
+        groups, cur, x = [], [], 0
+        for b in self.buttons.values():
+            w = b.winfo_reqwidth() + 6
+            if self.wrap and cur and x + w > avail:
+                groups.append(cur)
+                cur, x = [], 0
+            cur.append(b)
+            x += w
+        if cur:
+            groups.append(cur)
+        for n, grp in enumerate(groups):
+            for k, b in enumerate(grp):
+                b.grid(row=n, column=0, sticky="w", padx=(sum(
+                    g.winfo_reqwidth() + 6 for g in grp[:k]), 0),
+                    pady=(0, 6 if self.wrap else 0))
+        self._groups = groups
+
+    def _on_resize(self, e):
+        if self._layout_width is not None and abs(e.width - self._layout_width) < 8:
+            return
+        self._layout_width = e.width
+        for b in self.buttons.values():
+            b.grid_forget()
+        self._place_all(max(e.width, 100))
+
+    def set(self, v):
+        self.var.set(v)
+
+    def get(self):
+        return self.var.get()
+
+
+def segmented(master, values, command=None, variable=None, wrap=False):
+    return PillGroup(master, values, command, variable, wrap=wrap)
 
 
 def check(master, text, var, command=None):

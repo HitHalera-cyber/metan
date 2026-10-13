@@ -27,8 +27,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller
-      - run: python -m PyInstaller --noconfirm --windowed --name Metan --collect-data customtkinter --collect-data docx metan_gui.pyw
-      - run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic metan_classic.pyw
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan --icon metan/app/assets_data/metan.ico --collect-data customtkinter --collect-data docx --collect-data metan metan_gui.pyw
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic --icon metan/app/assets_data/metan.ico --collect-data metan metan_classic.pyw
+      - name: Add manual and shortcut script
+        shell: pwsh
+        run: |
+          Copy-Item "docs/Metan_Руководство_пользователя.docx" dist/Metan/
+          Copy-Item create_shortcut.bat dist/Metan/
+          Copy-Item "docs/Metan_Руководство_пользователя.docx" dist/Metan-Classic/
       - name: Smoke test - calculation without window
         shell: pwsh
         run: |

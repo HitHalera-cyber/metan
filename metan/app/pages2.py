@@ -28,9 +28,9 @@ def _plabel(name):
     return "%s — %s" % (name, m["label"])
 
 
-def open_folder(path):
+def open_folder(path, file=False):
     path = os.path.abspath(path)
-    if not os.path.isdir(path):
+    if not (os.path.isfile(path) if file else os.path.isdir(path)):
         return
     if sys.platform == "win32":
         os.startfile(path)  # noqa: S606
@@ -64,9 +64,10 @@ class SeriesPage(Page):
                   self.metric).pack(side="left", padx=8)
         self.plot = Plot(self, app)
         self.plot.grid(row=2, column=0, sticky="nsew")
-        self.table = Table(self, app, ["значение"], height=6)
-        self.table.grid(row=3, column=0, sticky="ew", pady=(8, 0))
-        self.grid_rowconfigure(2, weight=1)
+        self.table = Table(self, app, ["значение"], height=3)
+        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        self.grid_rowconfigure(2, weight=3, minsize=220)
+        self.grid_rowconfigure(3, weight=1)
         self._defaults()
 
     def _pname(self):
@@ -134,8 +135,8 @@ class SeriesPage(Page):
         self.plot.show()
         cols = [s.name] + ["α=%.2f" % a for a in alphas]
         self.table.destroy()
-        self.table = Table(self, self.app, cols, height=6)
-        self.table.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        self.table = Table(self, self.app, cols, height=3)
+        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
         rows, bad = [], []
         for val, sm, err in s.rows:
             if sm:
@@ -324,9 +325,10 @@ class ComparePage(Page):
         self.plot = Plot(self, app)
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.table = Table(self, app, ["Величина", "A", "B", "B − A"],
-                           widths=[220, 120, 120, 120], height=6)
-        self.table.grid(row=3, column=0, sticky="ew", pady=(8, 0))
-        self.grid_rowconfigure(2, weight=1)
+                           widths=[220, 120, 120, 120], height=3)
+        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        self.grid_rowconfigure(2, weight=3, minsize=220)
+        self.grid_rowconfigure(3, weight=1)
 
     def update_runs(self):
         names = [n for n, _ in self.app.runs] or ["—"]
@@ -469,9 +471,10 @@ class GridCheckPage(Page):
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.table = Table(self, app, ["α", "Величина", "Базовая", "Мелкая",
                                        "Отличие, %"],
-                           widths=[60, 160, 110, 110, 110], height=7)
-        self.table.grid(row=3, column=0, sticky="ew", pady=(8, 0))
-        self.grid_rowconfigure(2, weight=1)
+                           widths=[60, 160, 110, 110, 110], height=3)
+        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        self.grid_rowconfigure(2, weight=3, minsize=220)
+        self.grid_rowconfigure(3, weight=1)
 
     def run(self):
         try:

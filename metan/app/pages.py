@@ -74,7 +74,7 @@ class FieldsPage(Page):
                      ("Подписи", self.labels), ("Оси в метрах", self.meters)):
             check(tb2, t, v, self.refresh).pack(side="left", padx=(0, 12))
         button(tb2, "CSV", self.export_csv, width=60).pack(side="right")
-        button(tb2, "Сохранить рисунок", self.save_fig, width=150).pack(
+        button(tb2, "Рисунок…", self.save_fig, width=90).pack(
             side="right", padx=6)
         button(tb2, "Как в методичке", self.book, width=140).pack(side="right")
         self.plot = Plot(self, app)

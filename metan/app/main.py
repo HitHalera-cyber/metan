@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import sys
 import queue
 import threading
 import traceback
@@ -20,7 +21,7 @@ from .pages import (AnimationPage, ConvergencePage, FieldsPage, GeometryPage,
 from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
                      SeriesPage, open_folder)
 from .sidebar import Sidebar
-from .theme import c, pal
+from .theme import SANS, c, pal
 from .widgets import button, caps, entry, font, label, segmented
 
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
@@ -28,17 +29,23 @@ PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
 
 
 class App(ctk.CTk):
-    def __init__(self, mode="light"):
+    def __init__(self, mode=None, cfg=None):
+        from . import config
+        self.cfg = cfg if cfg is not None else config.load()
+        mode = mode or self.cfg.get("mode", "light")
         ctk.set_appearance_mode(mode)
+        try:
+            ctk.set_widget_scaling(float(self.cfg.get("scale", 1.0)))
+        except (TypeError, ValueError):
+            pass
         super().__init__(fg_color=c("bg"))
         self.mode = mode
+        self._set_icon()
         self.title("Metan — расчёт горения метана в камере")
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         w, h = min(1600, sw - 40), min(960, sh - 80)
         self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), 10))
-        self.minsize(1100, 680)
-        if sw < 1500:
-            ctk.set_widget_scaling(0.9)
+        self.minsize(1000, 640)
         self.results = None
         self.variant_idx = 0
         self.runs = []
@@ -75,9 +82,9 @@ class App(ctk.CTk):
         pf = ctk.CTkFrame(tb, fg_color="transparent")
         pf.grid(row=0, column=3, padx=10)
         self.prog_lbl = label(pf, "Готово к расчёту", 11, muted=True, mono=True,
-                              anchor="w", width=360)
+                              anchor="w", width=260)
         self.prog_lbl.pack(fill="x")
-        self.pbar = ctk.CTkProgressBar(pf, width=360, height=6,
+        self.pbar = ctk.CTkProgressBar(pf, width=260, height=6,
                                        progress_color=c("accent"),
                                        fg_color=c("line"))
         self.pbar.set(0)
@@ -90,8 +97,8 @@ class App(ctk.CTk):
         self.stop_btn.configure(state="disabled")
         button(tb, "Отчёт Word", self.report, width=110).grid(row=0, column=6,
                                                               padx=6)
-        self.theme_btn = button(tb, "Тёмная тема", self.toggle_theme, width=120)
-        self.theme_btn.grid(row=0, column=7, padx=(6, 20))
+        self.menu_btn = button(tb, "Меню ▾", self._show_menu, width=90)
+        self.menu_btn.grid(row=0, column=7, padx=(6, 20))
         ctk.CTkFrame(self, fg_color=c("line"), height=1, corner_radius=0).grid(
             row=0, column=0, columnspan=3, sticky="sew")
 
@@ -136,7 +143,8 @@ class App(ctk.CTk):
         ws.grid_rowconfigure(1, weight=1)
         self.nav_var = tk.StringVar(value=PAGES[0].title)
         segmented(ws, [p.title for p in PAGES], self.show_page,
-                  self.nav_var).grid(row=0, column=0, sticky="w", pady=(0, 10))
+                  self.nav_var, wrap=True).grid(row=0, column=0, sticky="ew",
+                                                pady=(0, 4))
         holder = ctk.CTkFrame(ws, fg_color="transparent")
         holder.grid(row=1, column=0, sticky="nsew")
         holder.grid_columnconfigure(0, weight=1)
@@ -164,6 +172,12 @@ class App(ctk.CTk):
     def _rightpanel(self):
         rp = ctk.CTkFrame(self, fg_color=c("panel"), corner_radius=0, width=290)
         rp.grid(row=2, column=2, sticky="nse")
+        self.rp = rp
+        show = self.cfg.get("right_panel")
+        if show is None:
+            show = self.winfo_screenwidth() >= 1500
+        if not show:
+            rp.grid_remove()
         rp.grid_propagate(False)
         rp.grid_columnconfigure(0, weight=1)
         self.res_caps = caps(rp, "Результат")
@@ -419,12 +433,90 @@ class App(ctk.CTk):
         self.run_task(job, lambda p: self.status("Отчёт сохранён: " + p),
                       "Отчёт Word")
 
+    # ------------------------------------------------------------ меню
+    def _set_icon(self):
+        from .assets import icon_paths
+        ico, png = icon_paths()
+        try:
+            if sys.platform == "win32" and ico:
+                self.iconbitmap(ico)
+            elif png:
+                self._icon_img = tk.PhotoImage(file=png)
+                self.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
+
+    def _save_cfg(self):
+        from . import config
+        config.save(self.cfg)
+
+    def _show_menu(self):
+        from .splash import STORIES
+        m = tk.Menu(self, tearoff=False, font=(SANS, 11))
+        m.add_command(label="Светлая тема" if self.mode == "dark"
+                      else "Тёмная тема", command=self.toggle_theme)
+        sm = tk.Menu(m, tearoff=False, font=(SANS, 11))
+        self._scale_var = tk.DoubleVar(value=float(self.cfg.get("scale", 1.0)))
+        for v in (0.8, 0.9, 1.0, 1.1, 1.25, 1.5):
+            sm.add_radiobutton(label="%d %%" % round(v * 100), value=v,
+                               variable=self._scale_var,
+                               command=lambda v=v: self.set_scale(v))
+        m.add_cascade(label="Масштаб интерфейса", menu=sm)
+        spm = tk.Menu(m, tearoff=False, font=(SANS, 11))
+        self._splash_var = tk.StringVar(value=self.cfg.get("splash", "rocket"))
+        for key, (title, _) in STORIES.items():
+            spm.add_radiobutton(label=title, value=key, variable=self._splash_var,
+                                command=lambda k=key: self._set_cfg("splash", k))
+        spm.add_radiobutton(label="Без заставки", value="none",
+                            variable=self._splash_var,
+                            command=lambda: self._set_cfg("splash", "none"))
+        m.add_cascade(label="Заставка при запуске", menu=spm)
+        m.add_command(label=("Скрыть" if self.rp.winfo_ismapped() else "Показать")
+                      + " панель результатов", command=self.toggle_right)
+        m.add_separator()
+        m.add_command(label="Руководство пользователя (Word)",
+                      command=self.open_manual)
+        m.add_command(label="О программе", command=self.about)
+        b = self.menu_btn
+        m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
+
+    def _set_cfg(self, k, v):
+        self.cfg[k] = v
+        self._save_cfg()
+
+    def set_scale(self, v):
+        self._set_cfg("scale", v)
+        ctk.set_widget_scaling(v)
+
+    def toggle_right(self):
+        if self.rp.winfo_ismapped():
+            self.rp.grid_remove()
+            self._set_cfg("right_panel", False)
+        else:
+            self.rp.grid()
+            self._set_cfg("right_panel", True)
+
+    def open_manual(self):
+        from .assets import manual_path
+        path = manual_path()
+        if not path:
+            messagebox.showinfo("Руководство", "Файл руководства не найден.")
+            return
+        open_folder(path, file=True)
+
+    def about(self):
+        messagebox.showinfo(
+            "О программе",
+            "Metan %s\nРасчёт горения метана в камере сгорания.\n"
+            "Python-версия программы met21 (Фортран, RK1–RK7.FOR).\n"
+            "При точности float64 результаты совпадают с Фортраном "
+            "побайтно." % __version__)
+
     # ------------------------------------------------------------ тема
     def toggle_theme(self):
         self.mode = "dark" if self.mode == "light" else "light"
         ctk.set_appearance_mode(self.mode)
-        self.theme_btn.configure(text="Светлая тема" if self.mode == "dark"
-                                 else "Тёмная тема")
+        self._set_cfg("mode", self.mode)
         self.sidebar.restyle()
         self._update_right()
         if self.results:
@@ -443,6 +535,10 @@ class App(ctk.CTk):
         self.destroy()
 
 
-def main(mode="light"):
-    App(mode).mainloop()
+def main(mode=None):
+    from . import config
+    from .splash import run_splash
+    cfg = config.load()
+    run_splash(cfg.get("splash", "rocket"))
+    App(mode, cfg).mainloop()
     return 0

@@ -23,7 +23,8 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "gui":
         from .app import main as gui_main
-        return gui_main("dark" if "--dark" in argv else "light")
+        return gui_main("dark" if "--dark" in argv else
+                        ("light" if "--light" in argv else None))
     if argv and argv[0] == "gui-classic":
         from .gui_classic import main as classic_main
         return classic_main()

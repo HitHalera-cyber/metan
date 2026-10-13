@@ -1,6 +1,6 @@
 """Десктопная программа Metan (оформление «Инженерный пульт», CustomTkinter)."""
 
 
-def main(mode="light"):
+def main(mode=None):
     from .main import main as _main
     return _main(mode)

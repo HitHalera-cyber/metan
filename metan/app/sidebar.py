@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from .. import plotting
 from ..params import GROUPS, Params, geometry_warnings
 from .theme import c, pal
-from .widgets import Tooltip, button, caps, entry, font, label, option
+from .widgets import Tooltip, button, entry, font, label, option
 
 
 class Sidebar(ctk.CTkFrame):
@@ -30,35 +30,49 @@ class Sidebar(ctk.CTkFrame):
         sf.grid_columnconfigure(0, weight=1)
         self.sf = sf
 
-        r = 0
         info = Params.field_info()
-        for key, title in GROUPS:
-            caps(sf, title).grid(row=r, column=0, sticky="w", pady=(12, 4),
-                                 padx=4)
-            r += 1
+        self.sections = {}
+        self._hl = None
+        for n, (key, title) in enumerate(GROUPS):
+            head = ctk.CTkButton(
+                sf, text="", anchor="w", height=36, corner_radius=10,
+                fg_color=c("card"), hover_color=c("accent_soft"),
+                text_color=c("fg"), border_width=1, border_color=c("line"),
+                font=font(12, "bold"),
+                command=lambda k=key: self.open_section(k))
+            head.grid(row=2 * n, column=0, sticky="ew", pady=(6, 2), padx=2)
+            body = ctk.CTkFrame(sf, fg_color="transparent")
+            body.grid(row=2 * n + 1, column=0, sticky="ew")
+            body.grid_columnconfigure(0, weight=1)
+            r = 0
             if key == "geom":
-                r = self._mini_schema(sf, r)
+                r = self._mini_schema(body, r)
+            cnt = 0
             for name, typ, meta in info:
                 if meta["group"] != key:
                     continue
-                r = self._row(sf, r, name, meta)
+                r = self._row(body, r, name, meta)
+                cnt += 1
             if key == "mode":
-                self.alfa_lbl = label(sf, "", 11, muted=False, wraplength=300,
+                self.alfa_lbl = label(body, "", 11, wraplength=300,
                                       justify="left")
                 self.alfa_lbl.configure(text_color=c("accent"))
                 self.alfa_lbl.grid(row=r, column=0, sticky="w", padx=4,
                                    pady=(2, 0))
                 r += 1
             if key == "calc":
-                fr = ctk.CTkFrame(sf, fg_color="transparent")
+                fr = ctk.CTkFrame(body, fg_color="transparent")
                 fr.grid(row=r, column=0, sticky="ew", padx=4, pady=2)
                 fr.grid_columnconfigure(0, weight=1)
                 label(fr, "Кадр анимации каждые N итераций", 12,
-                      wraplength=190, justify="left").grid(row=0, column=0,
+                      wraplength=175, justify="left").grid(row=0, column=0,
                                                            sticky="w")
                 self.snap_var = tk.StringVar(value="20")
                 entry(fr, self.snap_var, 70).grid(row=0, column=1, sticky="e")
                 r += 1
+                cnt += 1
+            self.sections[key] = (head, body, title, cnt)
+        self.open_section("mode")
 
         # Справка по параметру (не прокручивается)
         hb = ctk.CTkFrame(self, fg_color=c("card"), corner_radius=12,
@@ -68,7 +82,8 @@ class Sidebar(ctk.CTkFrame):
         self.help_title = label(hb, "Наведите мышь на параметр", 12, bold=True,
                                 anchor="w", justify="left", wraplength=320)
         self.help_title.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 2))
-        self.help_text = ctk.CTkTextbox(hb, height=96, wrap="word",
+        self.help_text = ctk.CTkTextbox(
+            hb, height=96 if self.winfo_screenheight() >= 900 else 64, wrap="word",
                                         fg_color=c("card"), text_color=c("muted"),
                                         font=font(11), border_width=0)
         self.help_text.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 8))
@@ -115,7 +130,7 @@ class Sidebar(ctk.CTkFrame):
         box = ctk.CTkFrame(parent, fg_color=c("card"), corner_radius=12,
                            border_width=1, border_color=c("line"))
         box.grid(row=r, column=0, sticky="ew", padx=2, pady=(0, 6))
-        self.mini_fig = Figure(figsize=(3.3, 1.75), dpi=96)
+        self.mini_fig = Figure(figsize=(3.3, 1.45), dpi=96)
         self.mini_canvas = FigureCanvasTkAgg(self.mini_fig, master=box)
         self.mini_canvas.get_tk_widget().configure(highlightthickness=0)
         self.mini_canvas.get_tk_widget().pack(fill="x", padx=6, pady=6)
@@ -125,14 +140,36 @@ class Sidebar(ctk.CTkFrame):
         self.warn_lbl.pack(fill="x", padx=8, pady=(0, 6))
         return r + 1
 
+    def open_section(self, key):
+        """Раскрыть один раздел, остальные свернуть (как вкладки)."""
+        for k, (head, body, title, cnt) in self.sections.items():
+            is_open = k == key
+            head.configure(
+                text=("▾  " if is_open else "▸  ") + title.upper() +
+                ("" if is_open else "   (%d)" % cnt),
+                fg_color=c("accent_soft") if is_open else c("card"))
+            if is_open:
+                body.grid()
+            else:
+                body.grid_remove()
+        self.current_section = key
+        try:
+            self.sf._parent_canvas.yview_moveto(0)
+        except Exception:
+            pass
+
     def _hover(self, name, meta, text):
+        if self._hl == name:
+            return
         self.help_title.configure(text=meta["label"])
         self.help_text.configure(state="normal")
         self.help_text.delete("1.0", "end")
         self.help_text.insert("1.0", text)
         self.help_text.configure(state="disabled")
-        for n, fr in self.rows.items():
-            fr.configure(fg_color=c("accent_soft") if n == name else "transparent")
+        if self._hl in self.rows:
+            self.rows[self._hl].configure(fg_color="transparent")
+        self.rows[name].configure(fg_color=c("accent_soft"))
+        self._hl = name
 
     # ------------------------------------------------------------------
     def load(self, p):
