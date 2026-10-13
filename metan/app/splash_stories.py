@@ -561,8 +561,8 @@ class CityStory:
 
 
 STORIES2 = {
+    "city": ("Ночной город", CityStory),
     "dawn": ("Рассвет на космодроме", DawnStory),
     "teststand": ("Огневые испытания", TestStandStory),
     "blueprint": ("Чертёж оживает", BlueprintStory),
-    "city": ("Ночной город", CityStory),
 }
