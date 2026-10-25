@@ -15,7 +15,7 @@ from ..kernels import NT
 from ..solver import VAR_NAMES
 from .pages import FIELD_NAMES, FIELD_ORDER, PARAM_META, Page, _num
 from .theme import c
-from .widgets import (Plot, Table, button, caps, check, entry, label, option,
+from .widgets import (Flow, Plot, Table, button, caps, check, entry, label, option,
                       segmented)
 
 METRICS = {"Fkomp": "fkomp", "T на выходе, K": "exit_T", "Ms, кг/с": "Ms",
@@ -176,7 +176,7 @@ class OptimizePage(Page):
         right = ctk.CTkFrame(top, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
         right.grid_columnconfigure(0, weight=1)
-        row = ctk.CTkFrame(right, fg_color="transparent")
+        row = Flow(right)
         row.grid(row=0, column=0, sticky="ew")
         label(row, "α", 12, muted=True).pack(side="left")
         self.alpha = tk.StringVar(value="0.8")
@@ -196,9 +196,10 @@ class OptimizePage(Page):
         self.apply_btn = button(right, "Применить найденные значения",
                                 self.apply, width=240)
         self.apply_btn.grid(row=3, column=0, sticky="w", pady=8)
-        label(right, "Подбор максимизирует Fkomp при заданном α. При α > 1 "
-              "Fkomp часто равен 1 во всей области - тогда подбор не "
-              "информативен, берите α ≤ 1.", 11, muted=True, wraplength=560,
+        label(right, "Подбор максимизирует Fkomp при заданном α (формулы "
+              "верны при любом α). При большом избытке окислителя (α ≳ 1.3) "
+              "горючее выгорает полностью и Fkomp = 1 почти везде - тогда "
+              "подбор мало что меняет.", 11, muted=True, wraplength=560,
               justify="left", anchor="w").grid(row=4, column=0, sticky="ew")
         self.plot = Plot(self, app, figsize=(8, 3))
         self.plot.grid(row=1, column=0, sticky="nsew", pady=(8, 0))

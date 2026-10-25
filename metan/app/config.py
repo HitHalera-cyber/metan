@@ -40,3 +40,28 @@ def save(cfg):
             json.dump(cfg, fh, ensure_ascii=False, indent=1)
     except OSError:
         pass
+
+
+def default_outdir():
+    """Папка для результатов по умолчанию.
+
+    Из исходников - ./results, как раньше. У установленной программы
+    (Metan.exe) папка установки может быть недоступна для записи, поэтому
+    результаты пишутся в «Документы\\Metan».
+    """
+    if not getattr(sys, "frozen", False):
+        return os.path.abspath("results")
+    docs = os.path.join(os.path.expanduser("~"), "Documents")
+    if os.name == "nt":
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(260)
+            # CSIDL_PERSONAL = 5: «Документы» (в т.ч. перенесённые в OneDrive)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf) == 0:
+                docs = buf.value
+        except Exception:
+            pass
+    if not os.path.isdir(docs):
+        docs = os.path.expanduser("~")
+    return os.path.join(docs, "Metan")
+

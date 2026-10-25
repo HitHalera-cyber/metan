@@ -21,12 +21,19 @@ jobs:
   windows-exe:
     needs: test
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller
+      - id: ver
+        shell: pwsh
+        run: |
+          $v = python -c "import metan; print(metan.__version__)"
+          "version=$v" >> $env:GITHUB_OUTPUT
       - run: python -m PyInstaller --noconfirm --windowed --name Metan --icon metan/app/assets_data/metan.ico --collect-data customtkinter --collect-data docx --collect-data metan metan_gui.pyw
       - run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic --icon metan/app/assets_data/metan.ico --collect-data metan metan_classic.pyw
       - name: Add manual and shortcut script
@@ -51,6 +58,34 @@ jobs:
             Stop-Process -Id $p.Id -Force
             Write-Host "$exe OK"
           }
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" installer\metan.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          Get-Item dist\Metan-Setup.exe | Format-List Name, Length
+      - name: Smoke test - silent install, run, uninstall
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\MetanInstalled"
+          Start-Process -Wait -FilePath dist\Metan-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',"/DIR=$dir"
+          if (-not (Test-Path "$dir\Metan.exe")) { throw "Metan.exe was not installed" }
+          Start-Process -Wait -FilePath "$dir\Metan.exe" -ArgumentList '--cli','-q','--set','NVARM=1','--set','NMAX=30','-o','smoke2'
+          if (-not (Test-Path smoke2\shi10.dat)) { throw "installed Metan.exe did not produce shi10.dat" }
+          $p = Start-Process -FilePath "$dir\Metan.exe" -PassThru
+          Start-Sleep -Seconds 25
+          if ($p.HasExited) { throw "installed Metan.exe exited early with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          Start-Sleep -Seconds 2
+          Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES'
+          Write-Host "installer OK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Metan-Setup
+          path: dist/Metan-Setup.exe
+          compression-level: 0
       - uses: actions/upload-artifact@v4
         with:
           name: Metan-windows
@@ -59,3 +94,27 @@ jobs:
         with:
           name: Metan-Classic-windows
           path: dist/Metan-Classic
+
+  release:
+    # установщик на странице Releases: постоянная ссылка на скачивание
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: windows-exe
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Metan-Setup
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.windows-exe.outputs.version }}
+          name: Metan ${{ needs.windows-exe.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: Metan-Setup.exe
+          body: |
+            Установщик Metan для Windows 10/11 (64-бит). Python ставить не нужно.
+            Скачайте Metan-Setup.exe, запустите и нажимайте «Далее».
+            Если Windows покажет «Система Windows защитила ваш компьютер» -
+            нажмите «Подробнее» → «Выполнить в любом случае».

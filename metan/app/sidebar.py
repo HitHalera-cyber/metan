@@ -3,13 +3,12 @@
 import tkinter as tk
 
 import customtkinter as ctk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from .. import plotting
 from ..params import GROUPS, Params, geometry_warnings
 from .theme import c, pal
-from .widgets import Tooltip, button, entry, font, label, option
+from .widgets import Canvas, Tooltip, button, entry, font, label, option
 
 
 class Sidebar(ctk.CTkFrame):
@@ -131,7 +130,7 @@ class Sidebar(ctk.CTkFrame):
                            border_width=1, border_color=c("line"))
         box.grid(row=r, column=0, sticky="ew", padx=2, pady=(0, 6))
         self.mini_fig = Figure(figsize=(3.3, 1.45), dpi=96)
-        self.mini_canvas = FigureCanvasTkAgg(self.mini_fig, master=box)
+        self.mini_canvas = Canvas(self.mini_fig, master=box)
         self.mini_canvas.get_tk_widget().configure(highlightthickness=0)
         self.mini_canvas.get_tk_widget().pack(fill="x", padx=6, pady=6)
         self.warn_lbl = label(box, "", 11, wraplength=300, justify="left",
@@ -180,7 +179,7 @@ class Sidebar(ctk.CTkFrame):
     def params(self):
         d = {k: v.get().strip() for k, v in self.vars.items()}
         for k in d:
-            if k not in ("out10", "out20", "precision"):
+            if k not in ("out10", "out20", "precision", "model"):
                 d[k] = d[k].replace(",", ".")
         return Params.from_dict(d)
 

@@ -12,7 +12,7 @@ from ..kernels import NF, NT
 from ..params import Params
 from ..solver import VAR_NAMES
 from .theme import c, pal
-from .widgets import Plot, Table, button, check, label, option, segmented
+from .widgets import Flow, Plot, Table, button, check, label, option, segmented
 
 FIELD_ORDER = [13, 2, 1, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 11, 10]
 FIELD_NAMES = [VAR_NAMES[k] for k in FIELD_ORDER]
@@ -35,7 +35,7 @@ class Page(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
     def toolbar(self, row=0):
-        fr = ctk.CTkFrame(self, fg_color="transparent")
+        fr = Flow(self)
         fr.grid(row=row, column=0, sticky="ew", pady=(0, 8))
         return fr
 

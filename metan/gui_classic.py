@@ -273,7 +273,7 @@ class App(tk.Tk):
 
     def _form_params(self):
         d = {k: v.get().strip().replace(",", ".") for k, v in self.vars.items()}
-        for k in ("out10", "out20", "precision"):
+        for k in ("out10", "out20", "precision", "model"):
             d[k] = self.vars[k].get().strip()
         return Params.from_dict(d)
 

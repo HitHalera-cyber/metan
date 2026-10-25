@@ -1,6 +1,8 @@
 """Общие элементы интерфейса."""
 
 import tkinter as tk
+import warnings
+import weakref
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -54,7 +56,191 @@ def option(master, values, command=None, variable=None, width=200):
                              corner_radius=8)
 
 
-class PillGroup(ctk.CTkFrame):
+def _scaling(widget):
+    try:
+        return ctk.ScalingTracker.get_widget_scaling(widget)
+    except Exception:
+        return 1.0
+
+
+def _pad_sum(pad, k):
+    if isinstance(pad, (tuple, list)):
+        return sum(float(x) for x in pad) * k
+    try:
+        return 2 * float(pad) * k
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class Flow(ctk.CTkFrame):
+    """Ряд элементов, который переносится на следующую строку, если не
+    помещается по ширине (узкий экран, крупный масштаб интерфейса).
+
+    Элементы создаются как обычно - дочерними к Flow и с .pack(side=...,
+    padx=...). Flow запоминает эти параметры и сам расставляет элементы по
+    строкам (place): side="left" - слева в порядке создания, side="right" -
+    у правого края (первый упакованный - крайний справа), элемент с
+    expand=True занимает остаток строки.
+    """
+
+    _all = weakref.WeakSet()
+
+    def __init__(self, master, wrap=True, row_gap=6, **kw):
+        super().__init__(master, fg_color="transparent", height=10, **kw)
+        self.wrap = wrap
+        self.row_gap = row_gap
+        self._spec = {}          # виджет -> (side, padx, expand)
+        self._order = []         # порядок создания
+        self._width = None
+        self._job = None
+        self._laid = {}          # виджет -> ширина при последней раскладке
+        Flow._all.add(self)
+        self.bind("<Configure>", self._on_configure, add="+")
+        self.after_idle(self.relayout)
+
+    def _collect(self):
+        for w in self.winfo_children():
+            if w in self._spec:
+                continue
+            call = getattr(w, "_last_geometry_manager_call", None)
+            if call is not None and call.get("function") is not None \
+                    and call["function"].__name__.startswith("pack"):
+                kw = dict(call["kwargs"])
+                k = 1.0          # параметры CTk - в немасштабированных единицах
+            elif w.winfo_manager() == "pack":
+                kw = w.pack_info()
+                k = 1.0 / max(_scaling(self), 1e-6)
+            else:
+                continue         # служебные элементы (холст CTkFrame)
+            pad = kw.get("padx", 0)
+            if isinstance(pad, (tuple, list)):
+                pad = (float(pad[0]) * k, float(pad[-1]) * k)
+            else:
+                try:
+                    pad = (float(pad) * k, float(pad) * k)
+                except (TypeError, ValueError):
+                    pad = (0.0, 0.0)
+            expand = bool(kw.get("expand")) and kw.get("fill") in ("x", "both")
+            self._spec[w] = (kw.get("side", "left"), pad, expand)
+            self._order.append(w)
+            # элемент изменил размер (текст, масштаб, вложенный Flow) -
+            # переразложить строку
+            w.bind("<Configure>", lambda e, w=w: self._item_resized(w, e),
+                   add="+")
+            if call is not None:
+                w._last_geometry_manager_call = None   # масштаб - через relayout
+            w.pack_forget() if w.winfo_manager() == "pack" else None
+        self._order = [w for w in self._order if w.winfo_exists()]
+        self._spec = {w: v for w, v in self._spec.items() if w.winfo_exists()}
+        return list(self._order)
+
+    def remove(self, w):
+        """Убрать элемент из ряда (вместо pack_forget)."""
+        self._collect()
+        if w in self._spec:
+            del self._spec[w]
+            self._order.remove(w)
+            self._laid.pop(w, None)
+            w.place_forget()
+            self._schedule()
+
+    def _item_resized(self, w, e):
+        laid = self._laid.get(w)
+        if laid is not None and abs(e.width - laid) > 1:
+            self._laid[w] = e.width
+            self._schedule()
+
+    def _schedule(self, width=None):
+        if self._job is not None:
+            self.after_cancel(self._job)
+        self._job = self.after(30, lambda: self.relayout(width))
+
+    def relayout(self, width=None):
+        self._job = None
+        if not self.winfo_exists():
+            return
+        items = self._collect()
+        if not items:
+            return
+        k = _scaling(self)
+        avail = width or self.winfo_width()
+        if avail <= 1:
+            avail = 10 ** 6
+        wrap_at = avail if self.wrap else 10 ** 6
+
+        def size(w):
+            side, pad, expand = self._spec[w]
+            req = w.winfo_reqwidth()
+            return pad[0] * k + req + pad[1] * k
+
+        # визуальный порядок: левые по порядку, правые - в обратном
+        left = [w for w in items if self._spec[w][0] != "right"]
+        right = [w for w in items if self._spec[w][0] == "right"]
+        seq = left + right[::-1]
+        rows, cur, x = [], [], 0.0
+        for w in seq:
+            ww = size(w)
+            if cur and x + ww > wrap_at:
+                rows.append(cur)
+                cur, x = [], 0.0
+            cur.append(w)
+            x += ww
+        rows.append(cur)
+        y = 0
+        for n, row in enumerate(rows):
+            h = max(w.winfo_reqheight() for w in row)
+            lefts = [w for w in row if self._spec[w][0] != "right"]
+            rights = [w for w in row if self._spec[w][0] == "right"]
+            x = 0.0
+            for w in lefts:
+                side, pad, expand = self._spec[w]
+                x += pad[0] * k
+                kw = dict(x=int(x), y=int(y + (h - w.winfo_reqheight()) / 2))
+                ww = w.winfo_reqwidth()
+                if expand and avail < 10 ** 6:
+                    rest = sum(size(r) for r in rights)
+                    ww = max(ww, int(avail - x - pad[1] * k - rest))
+                    kw["width"] = ww
+                w.tk.call("place", "configure", w._w,
+                          *sum((("-" + a, b) for a, b in kw.items()), ()))
+                self._laid[w] = ww
+                x += ww + pad[1] * k
+            xr = float(avail) if avail < 10 ** 6 else x + sum(size(r) for r in rights)
+            for w in reversed(rights):
+                side, pad, expand = self._spec[w]
+                xr -= pad[1] * k + w.winfo_reqwidth()
+                w.tk.call("place", "configure", w._w, "-x", int(xr),
+                          "-y", int(y + (h - w.winfo_reqheight()) / 2))
+                self._laid[w] = w.winfo_reqwidth()
+                xr -= pad[0] * k
+            y += h + (self.row_gap * k if n < len(rows) - 1 else 0)
+        # размеры рамки задаются в единицах CTk (без масштаба); ширина -
+        # естественная ширина ряда (для переносимых - самый широкий элемент,
+        # чтобы рамка не распирала родителя)
+        nat = sum(size(w) for w in seq) if not self.wrap else \
+            max(size(w) for w in seq)
+        new_w = max(1, int(round(nat / k)) + 1)
+        new_h = max(1, int(round(y / k)))
+        if new_h != self.cget("height") or new_w != self.cget("width"):
+            self.configure(height=new_h, width=new_w)
+
+    def _on_configure(self, e):
+        if self._width is not None and abs(e.width - self._width) < 4:
+            return
+        self._width = e.width
+        self._schedule(e.width)
+
+    @classmethod
+    def relayout_all(cls):
+        for f in list(cls._all):
+            try:
+                f._width = None
+                f.relayout()
+            except Exception:
+                pass
+
+
+class PillGroup(Flow):
     """Группа кнопок-плашек с одной выбранной (замена CTkSegmentedButton).
 
     Каждая кнопка подстраивается под длину текста при любом масштабе
@@ -63,27 +249,19 @@ class PillGroup(ctk.CTkFrame):
 
     def __init__(self, master, values, command=None, variable=None, wrap=False,
                  size=12):
-        super().__init__(master, fg_color="transparent")
+        super().__init__(master, wrap=wrap)
         self.command = command
         self.var = variable or tk.StringVar(value=values[0])
-        self.wrap = wrap
         self.buttons = {}
-        self.rows = []
         for v in values:
             b = ctk.CTkButton(self, text=v, width=20, height=32,
                               corner_radius=16, border_width=1,
                               font=font(size), command=lambda v=v: self._click(v))
+            b.pack(side="left", padx=(0, 6))
             self.buttons[v] = b
-        self._layout_width = None
-        if wrap:
-            self._place_all(10 ** 6)
-        else:
-            for b in self.buttons.values():
-                b.pack(side="left", padx=(0, 6))
+        self.relayout()
         self.var.trace_add("write", lambda *a: self._paint())
         self._paint()
-        if wrap:
-            self.bind("<Configure>", self._on_resize)
 
     def _click(self, v):
         self.var.set(v)
@@ -98,34 +276,6 @@ class PillGroup(ctk.CTkFrame):
                         hover_color=c("accent_hover") if sel else c("accent_soft"),
                         text_color=c("on_accent") if sel else c("fg"),
                         border_color=c("accent") if sel else c("line"))
-
-    def _place_all(self, avail):
-        """Разложить кнопки по рядам; каждый ряд - отдельная строка без
-        выравнивания по колонкам."""
-        groups, cur, x = [], [], 0
-        for b in self.buttons.values():
-            w = b.winfo_reqwidth() + 6
-            if self.wrap and cur and x + w > avail:
-                groups.append(cur)
-                cur, x = [], 0
-            cur.append(b)
-            x += w
-        if cur:
-            groups.append(cur)
-        for n, grp in enumerate(groups):
-            for k, b in enumerate(grp):
-                b.grid(row=n, column=0, sticky="w", padx=(sum(
-                    g.winfo_reqwidth() + 6 for g in grp[:k]), 0),
-                    pady=(0, 6 if self.wrap else 0))
-        self._groups = groups
-
-    def _on_resize(self, e):
-        if self._layout_width is not None and abs(e.width - self._layout_width) < 8:
-            return
-        self._layout_width = e.width
-        for b in self.buttons.values():
-            b.grid_forget()
-        self._place_all(max(e.width, 100))
 
     def set(self, v):
         self.var.set(v)
@@ -196,6 +346,35 @@ class Tooltip:
             self.tip = None
 
 
+class Canvas(FigureCanvasTkAgg):
+    """Холст matplotlib, перерисовывающийся после окончания изменения размера.
+
+    Стандартный холст перерисовывает рисунок на каждое событие <Configure>;
+    при растягивании окна и смене масштаба их десятки, отсюда подтормаживание.
+    """
+
+    def __init__(self, *a, **kw):
+        self._resize_job = None
+        super().__init__(*a, **kw)
+
+    def resize(self, event):
+        w = self.get_tk_widget()
+        if self._resize_job is not None:
+            w.after_cancel(self._resize_job)
+        self._resize_job = w.after(120, lambda: self._do_resize(event))
+
+    def _do_resize(self, event):
+        self._resize_job = None
+        super().resize(event)
+        if getattr(self.figure, "_metan_tight", False):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                try:
+                    self.figure.tight_layout()
+                except Exception:
+                    pass
+
+
 class Plot(ctk.CTkFrame):
     """Рисунок matplotlib, вписанный в интерфейс, с панелью инструментов."""
 
@@ -204,7 +383,7 @@ class Plot(ctk.CTkFrame):
                          border_width=1, border_color=c("line"))
         self.app = app
         self.fig = Figure(figsize=figsize, dpi=96)
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas = Canvas(self.fig, master=self)
         w = self.canvas.get_tk_widget()
         w.configure(highlightthickness=0, borderwidth=0)
         self.toolbar = None
@@ -248,6 +427,7 @@ class Plot(ctk.CTkFrame):
 
     def show(self):
         plotting.style(self.fig, self.app.mode)
+        self.fig._metan_tight = True
         try:
             self.fig.tight_layout()
         except Exception:

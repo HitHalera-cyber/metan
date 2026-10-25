@@ -637,65 +637,16 @@ class Solver:
         self._iterate()
         out.append(" " * 25 + "NITER=" + fmt_i(self.NITER, 4))
 
-        # 1000: коэффициент полноты сгорания
-        JC17 = JC - 1
-        extra = {}
-        if not (ALFA <= 1.):
-            ZGCP = F(0.)
-            ZHP = F(0.)
-            for J in range(2, JC17 + 1):
-                ZHP = ZHP + A[IN, J, NMU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
-                ZGCP = ZGCP + A[IN, J, NMFU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
-            ZGCP = ZGCP + A[IN, 1, NMFU1] * (A[IN, 2, NF] - A[IN, 1, NF]) / 2. + \
-                A[IN, JC, NMFU1] * (A[IN, JC, NF] - A[IN, JC17, NF]) / 2.
-            ZGCP = ZGCP / ((A[1, JA, NF] - A[1, JZ1, NF]) + 0.013833 *
-                           (A[1, JZ, NF] - A[1, 1, NF]))
-            ZHP = ZHP / (A[1, JC, NF] - A[1, 1, NF])
-            if abs(ZGCP) > 1:
-                ZGCP = F(1.)
-            fk = (1. - abs(ZGCP)) ** 0.5
-            kind = "GOR"
-            extra["ZHP"] = float(ZHP)
+        if self.p.model == "original":
+            fk, kind, FICM, extra = self._coefs_original(ALFA, AMG, AMO2, BETA)
+        else:
+            fk, kind, FICM, extra = self._coefs_corrected(ALFA, AMG, AMO2, BETA)
+        if kind == "GOR":
             out.append(" ************* KOEF Fkomp (GOR) =" + fmt_f(fk, 8, 5)
                        + " **********")
         else:
-            ZGCP = F(0.)
-            for J in range(2, JC17 + 1):
-                ZGCP = ZGCP + A[IN, J, NMFU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
-            ZGCP = ZGCP + A[IN, 1, NMFU1] * (A[IN, 2, NF] - A[IN, 1, NF]) / 2. + \
-                A[IN, JC, NMFU1] * (A[IN, JC, NF] - A[IN, JC17, NF]) / 2.
-            AMZ = AMG - AMO2 / 4.
-            ZGCP = (ZGCP - AMZ / 6.28) / ((AMG - AMZ) / 6.28)
-            if abs(ZGCP) > 1.:
-                ZGCP = F(1.)
-            fk = (1. - abs(ZGCP)) ** 0.5
-            kind = "OK"
             out.append(" ************* KOEF Fkomp (OK) =" + fmt_f(fk, 8, 5)
                        + "***********")
-
-        # 29: FIbeta - расчётный комплекс по выходному сечению
-        Z = F(0.)
-        BETAJ = F(0.)
-        for J in range(2, JC + 1):
-            IL = INM
-            ZO = (A[IL, J - 1, NMOX1] + 4.27 * A[IL, J - 1, NMPR1]
-                  + 3.35 * A[IL, J - 1, NMOX2] + 376. * A[IL, J - 1, NMDF]
-                  + 2.785 * A[IL, J - 1, NMPR2] + 2.765 * A[IL, J - 1, NMFU2])
-            ZG = (A[IL, J - 1, NMFU1] + 1.09 * A[IL, J - 1, NMPR1]
-                  + 0.857 * A[IL, J - 1, NMOX2] + 96. * A[IL, J - 1, NMDF]
-                  + 0.711 * A[IL, J - 1, NMPR2] + 0.706 * A[IL, J - 1, NMFU2])
-            ALFAJ = ZO / ZG / 3.9166
-            if ALFAJ <= 1.:
-                BETAJ = 1794. + 491.252 * ALFAJ - 475.9317 * ALFAJ ** 2
-            if ALFAJ > 1.:
-                BETAJ = 2154. - 402.252 * ALFAJ + 54.1698 * ALFAJ ** 2
-            if ALFAJ < 0.6:
-                BETAJ = 1917. - 2500. * (0.6 - ALFAJ)
-            if BETAJ < 600.:
-                BETAJ = F(600.)
-            ZF = (A[IL, J, NF] - A[IL, J - 1, NF]) / (A[IL, JC, NF] - A[IL, 1, NF])
-            Z = Z + BETAJ * ZF
-        FICM = Z / BETA
 
         self._print1(res.text20)
 
@@ -724,6 +675,136 @@ class Solver:
             diverged=self.NITER > self.p.NMAX,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _beta(a, c=2154.733):
+        """Расходный комплекс BETA(ALFA), аппроксимация из RK2.FOR."""
+        b = 0.
+        if a <= 1.:
+            b = 1794. + 491.252 * a - 475.9317 * a ** 2
+        if a > 1.:
+            b = c - 402.252 * a + 54.1698 * a ** 2
+        if a < 0.6:
+            b = 1917. - 2500. * (0.6 - a)
+        if b < 600.:
+            b = 600.
+        return b
+
+    def _coefs_original(self, ALFA, AMG, AMO2, BETA):
+        """Fkomp и FIbeta точно как в RK2.FOR (метки 1000 и 29)."""
+        F = self.F
+        A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
+        JZ, JZ1, JA = self.JZ, self.JZ1, self.JA
+        # 1000: коэффициент полноты сгорания
+        JC17 = JC - 1
+        extra = {}
+        if not (ALFA <= 1.):
+            ZGCP = F(0.)
+            ZHP = F(0.)
+            for J in range(2, JC17 + 1):
+                ZHP = ZHP + A[IN, J, NMU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
+                ZGCP = ZGCP + A[IN, J, NMFU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
+            ZGCP = ZGCP + A[IN, 1, NMFU1] * (A[IN, 2, NF] - A[IN, 1, NF]) / 2. + \
+                A[IN, JC, NMFU1] * (A[IN, JC, NF] - A[IN, JC17, NF]) / 2.
+            ZGCP = ZGCP / ((A[1, JA, NF] - A[1, JZ1, NF]) + 0.013833 *
+                           (A[1, JZ, NF] - A[1, 1, NF]))
+            ZHP = ZHP / (A[1, JC, NF] - A[1, 1, NF])
+            if abs(ZGCP) > 1:
+                ZGCP = F(1.)
+            fk = (1. - abs(ZGCP)) ** 0.5
+            kind = "GOR"
+            extra["ZHP"] = float(ZHP)
+        else:
+            ZGCP = F(0.)
+            for J in range(2, JC17 + 1):
+                ZGCP = ZGCP + A[IN, J, NMFU1] * (A[IN, J + 1, NF] - A[IN, J - 1, NF]) / 2.
+            ZGCP = ZGCP + A[IN, 1, NMFU1] * (A[IN, 2, NF] - A[IN, 1, NF]) / 2. + \
+                A[IN, JC, NMFU1] * (A[IN, JC, NF] - A[IN, JC17, NF]) / 2.
+            AMZ = AMG - AMO2 / 4.
+            ZGCP = (ZGCP - AMZ / 6.28) / ((AMG - AMZ) / 6.28)
+            if abs(ZGCP) > 1.:
+                ZGCP = F(1.)
+            fk = (1. - abs(ZGCP)) ** 0.5
+            kind = "OK"
+
+        # 29: FIbeta - расчётный комплекс по выходному сечению
+        Z = F(0.)
+        BETAJ = F(0.)
+        for J in range(2, JC + 1):
+            IL = INM
+            ZO = (A[IL, J - 1, NMOX1] + 4.27 * A[IL, J - 1, NMPR1]
+                  + 3.35 * A[IL, J - 1, NMOX2] + 376. * A[IL, J - 1, NMDF]
+                  + 2.785 * A[IL, J - 1, NMPR2] + 2.765 * A[IL, J - 1, NMFU2])
+            ZG = (A[IL, J - 1, NMFU1] + 1.09 * A[IL, J - 1, NMPR1]
+                  + 0.857 * A[IL, J - 1, NMOX2] + 96. * A[IL, J - 1, NMDF]
+                  + 0.711 * A[IL, J - 1, NMPR2] + 0.706 * A[IL, J - 1, NMFU2])
+            ALFAJ = ZO / ZG / 3.9166
+            if ALFAJ <= 1.:
+                BETAJ = 1794. + 491.252 * ALFAJ - 475.9317 * ALFAJ ** 2
+            if ALFAJ > 1.:
+                BETAJ = 2154. - 402.252 * ALFAJ + 54.1698 * ALFAJ ** 2
+            if ALFAJ < 0.6:
+                BETAJ = 1917. - 2500. * (0.6 - ALFAJ)
+            if BETAJ < 600.:
+                BETAJ = F(600.)
+            ZF = (A[IL, J, NF] - A[IL, J - 1, NF]) / (A[IL, JC, NF] - A[IL, 1, NF])
+            Z = Z + BETAJ * ZF
+        FICM = Z / BETA
+        return fk, kind, FICM, extra
+
+    def _coefs_corrected(self, ALFA, AMG, AMO2, BETA):
+        """Fkomp и FIbeta, правильные при любом ALFA.
+
+        Fkomp = sqrt(eta), eta = (CH4 на входе - CH4 на выходе) / CH4, которое
+        может сгореть. Глобальная реакция модели (24 CH4 + 47 O2) расходует
+        3.9166 кг O2 на 1 кг CH4, поэтому сгореть может min(Mgor, Mok/3.9166).
+        В оригинале при ALFA <= 1 избыток горючего считался по K0 = 4, а при
+        ALFA > 1 - по расходу через функцию тока с поправкой 0.013833.
+
+        FIbeta = (среднерасходное BETA(alfa_j)) / BETA(ALFA). Местный alfa_j
+        по элементному составу: продукты делятся на окислитель/горючее как
+        0.7966/0.2034 (как в VISCOS); K0 = 4, как в KM = 4*ALFA. В оригинале
+        каждый из пяти продуктов пересчитывался как вся смесь продуктов, т.е.
+        продукты учитывались впятеро, и местный alfa_j тянулся к 1 - отсюда
+        FIbeta > 1 при ALFA > 1.
+        """
+        A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
+        extra = {}
+        # расход CH4 через выходное сечение: 2*pi * интеграл c*dpsi
+        G = 0.
+        for J in range(2, JC + 1):
+            G += 0.5 * (A[IN, J, NMFU1] + A[IN, J - 1, NMFU1]) * \
+                (A[IN, J, NF] - A[IN, J - 1, NF])
+        G = abs(G) * 2. * 3.1416
+        gin = AMG * self.p.ZMF2N
+        burnable = min(gin, AMO2 * self.p.ZMO2N / 3.9166)
+        eta = (gin - G) / burnable if burnable > 0 else 0.
+        eta = min(max(eta, 0.), 1.)
+        fk = eta ** 0.5
+        kind = "GOR" if burnable >= gin else "OK"
+        extra["eta"] = float(eta)
+        extra["Gout"] = float(G)
+        # FIbeta
+        IL = INM
+        prod = (A[IL, 1:JC + 1, NMPR1] + A[IL, 1:JC + 1, NMOX2]
+                + A[IL, 1:JC + 1, NMDF] + A[IL, 1:JC + 1, NMPR2]
+                + A[IL, 1:JC + 1, NMFU2])
+        zo = A[IL, 1:JC + 1, NMOX1] + 0.7966 * prod
+        zg = np.maximum(A[IL, 1:JC + 1, NMFU1] + 0.2034 * prod, 1e-12)
+        aj = zo / zg / 4.
+        bj = np.array([self._beta(float(x)) for x in aj])
+        fj = zg / (zo + zg)                 # доля "горючих" элементов
+        dpsi = np.diff(A[IL, 1:JC + 1, NF])
+        tot = dpsi.sum()
+        if tot == 0:
+            return fk, kind, 0., extra
+        bmean = float(((bj[1:] + bj[:-1]) / 2. * dpsi).sum() / tot)
+        fmean = float(((fj[1:] + fj[:-1]) / 2. * dpsi).sum() / tot)
+        a_exit = (1. - fmean) / fmean / 4.
+        extra["ALFAexit"] = float(a_exit)
+        FICM = bmean / BETA
+        return fk, kind, FICM, extra
 
     def _print1(self, out):
         """SUBROUTINE PRINT1 (RK7.FOR): поля K=1..4 и координаты в shi20.dat."""

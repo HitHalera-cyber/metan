@@ -10,7 +10,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from .. import __version__, analysis, plotting
@@ -22,7 +21,8 @@ from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
                      SeriesPage, open_folder)
 from .sidebar import Sidebar
 from .theme import SANS, c, pal
-from .widgets import button, caps, entry, font, label, segmented
+from .widgets import (Canvas, Flow, Tooltip, button, caps, entry, font, label,
+                      segmented)
 
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
          SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
@@ -51,7 +51,8 @@ class App(ctk.CTk):
         self.runs = []
         self.series = self.opt = self.gridcheck = None
         self.preview, self.preview_msgs = None, []
-        self.outdir = tk.StringVar(value=os.path.abspath("results"))
+        self.outdir = tk.StringVar(value=self.cfg.get("outdir")
+                                   or config.default_outdir())
         self.params_path = None
         self.q = queue.Queue()
         self.cancel_ev = threading.Event()
@@ -105,9 +106,10 @@ class App(ctk.CTk):
     def _chips(self):
         fr = ctk.CTkFrame(self, fg_color=c("bg"), corner_radius=0, height=50)
         fr.grid(row=1, column=0, columnspan=3, sticky="ew")
-        caps(fr, "Варианты").pack(side="left", padx=(20, 10), pady=10)
-        self.chips_fr = ctk.CTkFrame(fr, fg_color="transparent")
-        self.chips_fr.pack(side="left")
+        caps(fr, "Варианты").pack(side="left", anchor="n", padx=(20, 10), pady=16)
+        self.chips_fr = Flow(fr)
+        self.chips_fr.pack(side="left", fill="x", expand=True, padx=(0, 16),
+                           pady=8)
         self.chip_btns = []
         self.chips_hint = label(self.chips_fr, "появятся после расчёта", 12,
                                 muted=True)
@@ -116,12 +118,13 @@ class App(ctk.CTk):
     def _build_chips(self):
         for b in self.chip_btns:
             b.destroy()
-        self.chips_hint.pack_forget()
+        self.chips_fr.remove(self.chips_hint)
         self.chip_btns = []
         for n, v in enumerate(self.results.variants):
             sel = n == self.variant_idx
-            txt = "α %.2f · %s" % (v.values["ALFA"],
-                                   "расх." if v.diverged else "%.3f" % v.fkomp)
+            txt = "α = %.2f · %s" % (v.values["ALFA"],
+                                     "расходится" if v.diverged
+                                     else "Fkomp %.3f" % v.fkomp)
             b = ctk.CTkButton(
                 self.chips_fr, text=txt, height=32, corner_radius=16,
                 font=font(12, mono=True), width=10,
@@ -133,7 +136,22 @@ class App(ctk.CTk):
                 (c("danger") if v.diverged else c("line")),
                 command=lambda n=n: self.select_variant(n))
             b.pack(side="left", padx=4)
+            Tooltip(b, lambda v=v: self._chip_tip(v), self)
             self.chip_btns.append(b)
+        self.chips_fr.relayout()
+
+    @staticmethod
+    def _chip_tip(v):
+        a = v.values["ALFA"]
+        if v.diverged:
+            return ("Вариант α = %.2f: расчёт не сошёлся за отведённое число "
+                    "итераций (NITER = %d), результаты недостоверны." % (a, v.NITER))
+        return ("Вариант α = %.2f (коэффициент избытка окислителя).\n"
+                "Fkomp = %.4f — коэффициент полноты сгорания на выходе "
+                "(1 — сгорело всё, что могло сгореть).\n"
+                "FIbeta = %.4f — коэффициент расходного комплекса β с учётом "
+                "неравномерности смешения.\nНажмите, чтобы показать этот вариант."
+                % (a, v.fkomp, v.extra.get("FIbeta", float("nan"))))
 
     # ------------------------------------------------------------ центр
     def _workspace(self):
@@ -149,18 +167,26 @@ class App(ctk.CTk):
         holder.grid(row=1, column=0, sticky="nsew")
         holder.grid_columnconfigure(0, weight=1)
         holder.grid_rowconfigure(0, weight=1)
+        # страницы создаются при первом открытии: быстрее запуск и смена
+        # масштаба (невидимые страницы не перерисовываются)
+        self._holder = holder
+        self._page_cls = {P.title: P for P in PAGES}
         self.pages = {}
-        for P in PAGES:
-            pg = P(holder, self)
+        self.page = None
+
+    def _get_page(self, title):
+        pg = self.pages.get(title)
+        if pg is None:
+            pg = self._page_cls[title](self._holder, self)
             pg.grid(row=0, column=0, sticky="nsew")
             pg.grid_remove()
-            self.pages[P.title] = pg
-        self.page = None
+            self.pages[title] = pg
+        return pg
 
     def show_page(self, title):
         if self.page is not None:
             self.page.grid_remove()
-        self.page = self.pages[title]
+        self.page = self._get_page(title)
         self.nav_var.set(title)
         self.page.grid()
         if title == "Сравнение":
@@ -186,7 +212,7 @@ class App(ctk.CTk):
         self.kv_fr.grid(row=1, column=0, sticky="ew", padx=16)
         self.kv_fr.grid_columnconfigure(1, weight=1)
         self.kv = {}
-        for n, key in enumerate(("Fkomp", "KM", "BETA", "Ms, кг/с", "Vгор, м/с",
+        for n, key in enumerate(("Fkomp", "FIbeta", "KM", "BETA", "Ms, кг/с", "Vгор, м/с",
                                  "Vок, м/с", "NITER", "T вых, K", "CH4 вых",
                                  "O2 вых", "CO2 вых")):
             label(self.kv_fr, key, 12, muted=True, anchor="w").grid(
@@ -200,7 +226,7 @@ class App(ctk.CTk):
                            border_width=1, border_color=c("line"))
         box.grid(row=3, column=0, sticky="ew", padx=12)
         self.mini = Figure(figsize=(2.6, 1.7), dpi=96)
-        self.mini_canvas = FigureCanvasTkAgg(self.mini, master=box)
+        self.mini_canvas = Canvas(self.mini, master=box)
         self.mini_canvas.get_tk_widget().configure(highlightthickness=0)
         self.mini_canvas.get_tk_widget().pack(fill="x", padx=6, pady=6)
         caps(rp, "Файлы результатов").grid(row=4, column=0, sticky="w", padx=16,
@@ -226,6 +252,7 @@ class App(ctk.CTk):
         d = filedialog.askdirectory(initialdir=self.outdir.get())
         if d:
             self.outdir.set(d)
+            self._set_cfg("outdir", d)
 
     def _update_right(self):
         v = self.variant
@@ -238,6 +265,7 @@ class App(ctk.CTk):
             val = v.values
             self.res_caps.configure(text="РЕЗУЛЬТАТ · α %.2f" % val["ALFA"])
             data = {"Fkomp": "%.5f (%s)" % (v.fkomp, v.fkomp_kind.lower()),
+                    "FIbeta": "%.4f" % v.extra.get("FIbeta", float("nan")),
                     "KM": "%.2f" % val["KM"], "BETA": "%.1f" % val["BETA"],
                     "Ms, кг/с": "%.5f" % val["Ms"],
                     "Vгор, м/с": "%.1f" % val["Vgor"],
@@ -284,7 +312,7 @@ class App(ctk.CTk):
         name = name or "Расчёт %d · %s" % (len(self.runs) + 1,
                                            datetime.datetime.now().strftime("%H:%M:%S"))
         self.runs.append((name, res))
-        if self.page is self.pages["Сравнение"]:
+        if self.page is self.pages.get("Сравнение"):
             self.page.update_runs()
 
     def on_preview(self, pv, msgs):
@@ -485,8 +513,26 @@ class App(ctk.CTk):
         self._save_cfg()
 
     def set_scale(self, v):
+        if abs(float(self.cfg.get("scale", 1.0)) - v) < 1e-6:
+            return
         self._set_cfg("scale", v)
-        ctk.set_widget_scaling(v)
+        # перерисовка всех элементов идёт под заставкой-шторкой, чтобы окно
+        # не "ползло" по частям; графики перерисуются один раз в конце
+        cover = ctk.CTkFrame(self, fg_color=c("bg"), corner_radius=0)
+        label(cover, "Меняю масштаб…", 16, muted=True).place(
+            relx=0.5, rely=0.5, anchor="center")
+        cover.place(x=0, y=0, relwidth=1, relheight=1)
+        cover.lift()
+        self.update_idletasks()
+        self.configure(cursor="watch")
+        try:
+            ctk.set_widget_scaling(v)
+            self.update_idletasks()
+            Flow.relayout_all()
+            self.update_idletasks()
+        finally:
+            self.configure(cursor="")
+            self.after(150, cover.destroy)
 
     def toggle_right(self):
         if self.rp.winfo_ismapped():
