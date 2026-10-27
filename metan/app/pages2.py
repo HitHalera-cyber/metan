@@ -14,13 +14,27 @@ from .. import analysis, plotting, studies
 from ..kernels import NT
 from ..solver import VAR_NAMES
 from .pages import FIELD_NAMES, FIELD_ORDER, PARAM_META, Page, _num
-from .theme import c
+from .theme import c, pal
 from .widgets import (Flow, Plot, Table, button, caps, check, entry, label, option,
                       segmented)
 
 METRICS = {"Fkomp": "fkomp", "T на выходе, K": "exit_T", "Ms, кг/с": "Ms",
            "CH4 на выходе": "exit_CH4", "O2 на выходе": "exit_O2",
            "CO2 на выходе": "exit_CO2"}
+
+
+def _short(name):
+    """Обозначение, как в протоколе и методичке (DKAR -> Dprk)."""
+    lab = PARAM_META[name]["label"]
+    return lab.split()[-1] if lab else name
+
+
+def _olabel(name):
+    m = PARAM_META[name]
+    words = m["label"].split()
+    text = " ".join(words[:-1]) or name
+    text = text[0].lower() + text[1:]
+    return "%s — %s" % (_short(name), text)
 
 
 def _plabel(name):
@@ -62,13 +76,44 @@ class SeriesPage(Page):
         self.metric = tk.StringVar(value="Fkomp")
         segmented(tb2, list(METRICS), lambda _v: self.refresh(),
                   self.metric).pack(side="left", padx=8)
-        self.plot = Plot(self, app)
-        self.plot.grid(row=2, column=0, sticky="nsew")
-        self.table = Table(self, app, ["значение"], height=3)
-        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
-        self.grid_rowconfigure(2, weight=3, minsize=220)
-        self.grid_rowconfigure(3, weight=1)
+        # график и таблица - в окне с перетаскиваемой границей
+        self.pane = tk.PanedWindow(self, orient="vertical", sashwidth=10,
+                                   bd=0, sashrelief="flat", showhandle=False,
+                                   sashcursor="sb_v_double_arrow",
+                                   bg=pal(app.mode)["bg"])
+        self.pane.grid(row=2, column=0, sticky="nsew")
+        self.plot = Plot(self.pane, app)
+        self.table = Table(self.pane, app, ["значение"], height=3,
+                           copy_button=True)
+        self.table.set_title("Таблица результатов (границу над ней можно "
+                             "перетаскивать)")
+        self.pane.add(self.plot, minsize=160, stretch="always")
+        self.pane.add(self.table, minsize=150, stretch="never")
+        self.grid_rowconfigure(2, weight=1)
+        self.after(200, self._init_sash)
         self._defaults()
+
+    def _init_sash(self):
+        h, w = self.pane.winfo_height(), self.pane.winfo_width()
+        if h <= 1:
+            self.after(300, self._init_sash)
+            return
+        self.pane.bind("<Configure>", self._pane_resized, add="+")
+        self._pane_resized()
+
+    def _pane_resized(self, _e=None):
+        """Низкое окно - таблица справа от графика, иначе - под ним."""
+        h, w = self.pane.winfo_height(), self.pane.winfo_width()
+        orient = "horizontal" if h < 430 and w > 760 else "vertical"
+        if orient == str(self.pane.cget("orient")) and _e is not None:
+            return
+        self.pane.configure(orient=orient, sashcursor="sb_h_double_arrow"
+                            if orient == "horizontal" else "sb_v_double_arrow")
+        self.update_idletasks()
+        if orient == "horizontal":
+            self.pane.sash_place(0, max(300, int(w * 0.6)), 0)
+        else:
+            self.pane.sash_place(0, 0, max(160, int(h * 0.62)))
 
     def _pname(self):
         return self.pname.get().split(" — ")[0]
@@ -112,6 +157,7 @@ class SeriesPage(Page):
         self.app.run_task(job, done, "Серия расчётов")
 
     def refresh(self):
+        self.pane.configure(bg=pal(self.app.mode)["bg"])
         s = self.app.series
         if s is None:
             self.plot.message("Выберите параметр и диапазон, нажмите «Запустить серию».\n"
@@ -133,10 +179,10 @@ class SeriesPage(Page):
         ax.set_title("%s в зависимости от %s" % (self.metric.get(), s.name),
                      fontsize=11)
         self.plot.show()
-        cols = [s.name] + ["α=%.2f" % a for a in alphas]
-        self.table.destroy()
-        self.table = Table(self, self.app, cols, height=3)
-        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
+        m = PARAM_META[s.name]
+        cols = ["%s, %s" % (s.name, m["unit"]) if m["unit"] else s.name] + \
+            ["α = %.2f" % a for a in alphas]
+        self.table.set_columns(cols)
         rows, bad = [], []
         for val, sm, err in s.rows:
             if sm:
@@ -147,6 +193,9 @@ class SeriesPage(Page):
                 rows.append(["%.5g" % val] + ["ошибка: " + (err or "")] +
                             [""] * (len(alphas) - 1))
                 bad.append(True)
+        self.table.set_title("%s от %s: %d точек%s" % (
+            self.metric.get(), _short(s.name), len(s.rows),
+            " · красным - разошедшиеся" if any(bad) else ""))
         self.table.set_rows(rows, bad)
 
 
@@ -162,14 +211,15 @@ class OptimizePage(Page):
         left = ctk.CTkFrame(top, fg_color=c("card"), corner_radius=12,
                             border_width=1, border_color=c("line"))
         left.grid(row=0, column=0, sticky="nw")
-        caps(left, "Что подбирать (мин / макс)").grid(row=0, column=0,
+        caps(left, "Что подбирать (мин / макс, мм)").grid(row=0, column=0,
                                                       columnspan=3, sticky="w",
                                                       padx=10, pady=(8, 4))
         self.sel, self.lo, self.hi = {}, {}, {}
         for r, n in enumerate(studies.OPT_PARAMS, start=1):
             self.sel[n] = tk.BooleanVar(value=n in ("DKR", "DELOK"))
-            check(left, n, self.sel[n]).grid(row=r, column=0, sticky="w",
-                                             padx=10, pady=1)
+            check(left, _olabel(n), self.sel[n]).grid(row=r, column=0,
+                                                      sticky="w", padx=10,
+                                                      pady=1)
             self.lo[n], self.hi[n] = tk.StringVar(), tk.StringVar()
             entry(left, self.lo[n], 70).grid(row=r, column=1, padx=2)
             entry(left, self.hi[n], 70).grid(row=r, column=2, padx=(2, 10))
@@ -190,8 +240,7 @@ class OptimizePage(Page):
         self.result = label(right, "", 12, anchor="w", justify="left",
                             wraplength=560)
         self.result.grid(row=1, column=0, sticky="ew", pady=8)
-        self.table = Table(right, app, ["Параметр", "Было", "Стало"],
-                           widths=[200, 100, 100], height=5)
+        self.table = Table(right, app, ["Параметр", "Было", "Стало"], height=5)
         self.table.grid(row=2, column=0, sticky="ew")
         self.apply_btn = button(right, "Применить найденные значения",
                                 self.apply, width=240)
@@ -262,7 +311,7 @@ class OptimizePage(Page):
         self.result.configure(text="α = %.2f: Fkomp было %.5f, стало %.5f "
                               "(%d расчётов)." % (o.alpha, o.start_f, o.best_f,
                                                   len(o.evals)))
-        self.table.set_rows([(n, "%.5g" % a, "%.5g" % b)
+        self.table.set_rows([(_short(n), "%.5g" % a, "%.5g" % b)
                              for n, a, b in zip(o.names, o.start_x, o.best_x)])
         f = self.plot.fig
         f.clear()

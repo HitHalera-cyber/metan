@@ -4,6 +4,6 @@
 from .params import Params
 from .solver import Solver, Results, VariantResult, Cancelled, VAR_NAMES
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __all__ = ["Params", "Solver", "Results", "VariantResult", "Cancelled",
            "VAR_NAMES"]

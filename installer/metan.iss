@@ -3,7 +3,7 @@
 ; Перед этим PyInstaller должен собрать dist\Metan.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.2.0"
+  #define MyAppVersion "1.2.1"
 #endif
 
 [Setup]

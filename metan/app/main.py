@@ -21,7 +21,7 @@ from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
                      SeriesPage, open_folder)
 from .sidebar import Sidebar
 from .theme import SANS, c, pal
-from .widgets import (Canvas, Flow, Tooltip, button, caps, entry, font, label,
+from .widgets import (Canvas, Flow, Table, Tooltip, button, caps, entry, font, label,
                       segmented)
 
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
@@ -529,6 +529,7 @@ class App(ctk.CTk):
             ctk.set_widget_scaling(v)
             self.update_idletasks()
             Flow.relayout_all()
+            Table.restyle_all()
             self.update_idletasks()
         finally:
             self.configure(cursor="")

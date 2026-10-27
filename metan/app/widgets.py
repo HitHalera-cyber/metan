@@ -56,6 +56,14 @@ def option(master, values, command=None, variable=None, width=200):
                              corner_radius=8)
 
 
+def _isnum(v):
+    try:
+        float(str(v))
+        return True
+    except ValueError:
+        return False
+
+
 def _scaling(widget):
     try:
         return ctk.ScalingTracker.get_widget_scaling(widget)
@@ -437,51 +445,148 @@ class Plot(ctk.CTkFrame):
 
 
 class Table(ctk.CTkFrame):
-    """Таблица (ttk.Treeview) в оформлении темы."""
+    """Таблица (ttk.Treeview) в оформлении темы.
+
+    Шрифт и высота строк следуют масштабу интерфейса (ttk сам не
+    масштабируется), строки чередуются по цвету, столбцы делят ширину
+    поровну. Ctrl+C / copy() - копирование в буфер (вставляется в Excel).
+    """
 
     _n = 0
+    _all = weakref.WeakSet()
 
-    def __init__(self, master, app, columns, widths=None, height=8):
+    def __init__(self, master, app, columns, widths=None, height=8,
+                 copy_button=False):
         super().__init__(master, fg_color=c("card"), corner_radius=12,
                          border_width=1, border_color=c("line"))
         self.app = app
+        self.columns = list(columns)
+        self.widths = widths
         Table._n += 1
+        Table._all.add(self)
         self.style_name = "M%d.Treeview" % Table._n
-        self.tree = ttk.Treeview(self, columns=[str(i) for i in range(len(columns))],
+        top = None
+        if copy_button:
+            top = Flow(self)
+            top.pack(side="top", fill="x", padx=10, pady=(8, 0))
+            self.title_lbl = label(top, "", 12, muted=True, anchor="w")
+            self.title_lbl.pack(side="left")
+            button(top, "Копировать в Excel", self.copy, width=150).pack(
+                side="right")
+        body = tk.Frame(self, bd=0, highlightthickness=0)
+        body.pack(fill="both", expand=True, padx=8, pady=8)
+        self._body = body
+        self.tree = ttk.Treeview(body, columns=[str(i) for i in range(len(columns))],
                                  show="headings", height=height,
                                  style=self.style_name)
         for i, title in enumerate(columns):
             self.tree.heading(str(i), text=title)
-            self.tree.column(str(i), width=(widths or [100] * len(columns))[i],
-                             anchor="e" if i else "w", stretch=True)
-        ys = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=ys.set)
-        ys.pack(side="right", fill="y", pady=8)
-        self.tree.pack(fill="both", expand=True, padx=8, pady=8)
+            self.tree.column(str(i), width=(widths or [110] * len(columns))[i],
+                             minwidth=60, anchor="center", stretch=True)
+        ys = ttk.Scrollbar(body, orient="vertical", command=self.tree.yview,
+                           style="Metan.Vertical.TScrollbar")
+        xs = ttk.Scrollbar(body, orient="horizontal", command=self.tree.xview,
+                           style="Metan.Horizontal.TScrollbar")
+        self.tree.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        ys.pack(side="right", fill="y")
+        xs.pack(side="bottom", fill="x")
+        self.tree.pack(fill="both", expand=True)
+        self.tree.bind("<Control-c>", lambda e: self.copy())
+        self.tree.bind("<Control-C>", lambda e: self.copy())
         self.restyle()
 
     def restyle(self):
         p = pal(self.app.mode)
+        k = _scaling(self)
         st = ttk.Style(self)
         try:
             st.theme_use("clam")
         except tk.TclError:
             pass
+        # отрицательный размер - пиксели: не зависит от DPI-настроек Tk
+        fs = -max(12, int(round(15 * k)))
         st.configure(self.style_name, background=p["card"],
                      fieldbackground=p["card"], foreground=p["fg"],
-                     rowheight=24, font=(SANS, 10), borderwidth=0)
+                     rowheight=int(round(28 * k)), font=(SANS, fs),
+                     borderwidth=0)
         st.configure(self.style_name + ".Heading", background=p["panel"],
-                     foreground=p["muted"], font=(SANS, 10, "bold"),
-                     borderwidth=0, relief="flat")
-        st.map(self.style_name, background=[("selected", p["accent_soft"])],
-               foreground=[("selected", p["fg"])])
+                     foreground=p["fg"], font=(SANS, fs, "bold"),
+                     borderwidth=0, relief="flat", padding=(4, int(6 * k)))
+        st.map(self.style_name, background=[("selected", p["accent"])],
+               foreground=[("selected", p["on_accent"])])
+        st.map(self.style_name + ".Heading",
+               background=[("active", p["accent_soft"])])
+        for o in ("Vertical", "Horizontal"):
+            st.configure("Metan.%s.TScrollbar" % o, background=p["line"],
+                         troughcolor=p["card"], bordercolor=p["card"],
+                         lightcolor=p["line"], darkcolor=p["line"],
+                         arrowcolor=p["muted"], gripcount=0, relief="flat")
+            st.map("Metan.%s.TScrollbar" % o,
+                   background=[("active", p["accent_soft"])])
+        self._body.configure(bg=p["card"])
+        self.tree.tag_configure("odd", background=p["panel"])
         self.tree.tag_configure("bad", foreground=p["danger"])
+        if self.widths is None:
+            self._fit_columns()
+
+    def _fit_columns(self):
+        """Ширина столбцов - по самому длинному тексту (не меньше 90 px)."""
+        k = _scaling(self)
+        for i, title in enumerate(self.columns):
+            n = len(title)
+            for it in self.tree.get_children():
+                vals = self.tree.item(it, "values")
+                if i < len(vals):
+                    n = max(n, len(str(vals[i])))
+            self.tree.column(str(i), width=int(max(90, 11 * n + 24) * k))
+
+    def set_columns(self, columns):
+        self.tree.delete(*self.tree.get_children())
+        self.columns = list(columns)
+        self.tree.configure(columns=[str(i) for i in range(len(columns))])
+        for i, title in enumerate(columns):
+            self.tree.heading(str(i), text=title)
+            self.tree.column(str(i), minwidth=60, anchor="center", stretch=True)
+        self._fit_columns()
 
     def set_rows(self, rows, bad=None):
         self.tree.delete(*self.tree.get_children())
         for n, r in enumerate(rows):
-            tags = ("bad",) if bad and bad[n] else ()
-            self.tree.insert("", "end", values=[str(x) for x in r], tags=tags)
+            tags = ["odd"] if n % 2 else []
+            if bad and bad[n]:
+                tags.append("bad")
+            self.tree.insert("", "end", values=[str(x) for x in r],
+                             tags=tuple(tags))
+        if self.widths is None:
+            self._fit_columns()
+
+    def set_title(self, text):
+        if hasattr(self, "title_lbl"):
+            self.title_lbl.configure(text=text)
+
+    def as_text(self):
+        lines = ["\t".join(self.columns)]
+        for it in self.tree.get_children():
+            lines.append("\t".join(str(v).replace(".", ",") if _isnum(v)
+                                   else str(v)
+                                   for v in self.tree.item(it, "values")))
+        return "\n".join(lines)
+
+    def copy(self):
+        self.clipboard_clear()
+        self.clipboard_append(self.as_text())
+        try:
+            self.app.status("Таблица скопирована - вставьте в Excel (Ctrl+V)")
+        except Exception:
+            pass
+
+    @classmethod
+    def restyle_all(cls):
+        for t in list(cls._all):
+            try:
+                t.restyle()
+            except Exception:
+                pass
 
     def selected_index(self):
         sel = self.tree.selection()
