@@ -464,9 +464,10 @@ STORIES = {}
 
 
 def _register():
+    # используется одна заставка - «Ночной город» (ночь в тёмной теме,
+    # день в светлой); остальные сюжеты оставлены в коде, но не показываются
     from .splash_stories import STORIES2
-    STORIES.update(STORIES2)
-    STORIES.update(OLD_STORIES)
+    STORIES["city"] = STORIES2["city"]
 
 
 OLD_STORIES = {
@@ -513,7 +514,7 @@ def _warmup(status):
         importlib.import_module(mod)
 
 
-def run_splash(key="dawn", min_time=4.0, max_time=180, mode="dark"):
+def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
     """Показать заставку, пока идёт подготовка. key="none" - без заставки
     (подготовка всё равно выполняется)."""
     if key not in STORIES:

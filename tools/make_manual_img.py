@@ -71,7 +71,7 @@ def data_files():
 
 def splash_png():
     from metan.app.splash import make_story
-    st = make_story("dawn", "light")
+    st = make_story("city", "light")
     im = st.frame(st.length * 0.7)
     im = im.resize((im.width * 3, im.height * 3), Image.NEAREST)
     im.save(os.path.join(OUT, "splash.png"))

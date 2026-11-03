@@ -18,7 +18,7 @@ from .theme import c, pal
 from .widgets import (Flow, Plot, Table, button, caps, check, entry, label, option,
                       segmented)
 
-METRICS = {"φсг": "fkomp", "Tвых, K": "exit_T", "ṁ, кг/с": "Ms",
+METRICS = {"φк": "fkomp", "Tвых, K": "exit_T", "ṁ, кг/с": "Ms",
            "gCH4 вых": "exit_CH4", "gO2 вых": "exit_O2",
            "gCO2 вых": "exit_CO2"}
 
@@ -76,7 +76,7 @@ class SeriesPage(Page):
             side="right")
         tb2 = self.toolbar(1)
         label(tb2, "Показать:", 12, muted=True).pack(side="left")
-        self.metric = tk.StringVar(value="φсг")
+        self.metric = tk.StringVar(value="φк")
         segmented(tb2, list(METRICS), lambda _v: self.refresh(),
                   self.metric).pack(side="left", padx=8)
         # график и таблица - в окне с перетаскиваемой границей
@@ -253,9 +253,9 @@ class OptimizePage(Page):
         self.apply_btn = button(right, "Применить найденные значения",
                                 self.apply, width=240)
         self.apply_btn.grid(row=3, column=0, sticky="w", pady=8)
-        label(right, "Подбор максимизирует φсг при заданном α (формулы "
+        label(right, "Подбор максимизирует φк при заданном α (формулы "
               "верны при любом α). При большом избытке окислителя (α ≳ 1.3) "
-              "горючее выгорает полностью и φсг = 1 почти везде - тогда "
+              "горючее выгорает полностью и φк = 1 почти везде - тогда "
               "подбор мало что меняет.", 11, muted=True, wraplength=560,
               justify="left", anchor="w").grid(row=4, column=0, sticky="ew")
         self.plot = Plot(self, app, figsize=(8, 3))
@@ -298,7 +298,7 @@ class OptimizePage(Page):
         def done(res):
             self.app.opt = res
             self.refresh()
-            self.app.status("Подбор завершён: φсг %.5f → %.5f"
+            self.app.status("Подбор завершён: φк %.5f → %.5f"
                             % (res.start_f, res.best_f))
 
         self.app.run_task(job, done, "Подбор параметров")
@@ -316,7 +316,7 @@ class OptimizePage(Page):
         if o is None:
             self.plot.message("Здесь появится ход подбора")
             return
-        self.result.configure(text="α = %.2f: φсг было %.5f, стало %.5f "
+        self.result.configure(text="α = %.2f: φк было %.5f, стало %.5f "
                               "(%d расчётов)." % (o.alpha, o.start_f, o.best_f,
                                                   len(o.evals)))
         self.table.set_rows([(_short(n), "%.5g" % a, "%.5g" % b)
@@ -334,7 +334,7 @@ class OptimizePage(Page):
         ax.set_ylim(max(min([y for y in ys if y > -1] or [0]) - 0.01, 0),
                     1.005)
         ax.set_xlabel("номер расчёта")
-        ax.set_ylabel("φсг")
+        ax.set_ylabel("φк")
         ax.grid(True, alpha=0.25)
         ax.legend(fontsize=9)
         self.plot.show()
@@ -470,7 +470,7 @@ class ComparePage(Page):
                          fontsize=11)
             self.plot.show()
         ea, eb = analysis.exit_summary(a), analysis.exit_summary(b)
-        rows = [("φсг", a.fkomp, b.fkomp),
+        rows = [("φк", a.fkomp, b.fkomp),
                 ("φβ", a.extra.get("FIbeta", np.nan), b.extra.get("FIbeta", np.nan)),
                 ("ṁ, кг/с", a.values["Ms"], b.values["Ms"]),
                 ("Tвых, K", ea["T"], eb["T"])]
@@ -569,13 +569,13 @@ class GridCheckPage(Page):
               ("—" if rel != rel else "%+.2f" % rel) + (" расх." if bad else ""))
              for a, n, x, y, rel, bad in rows],
             bad=[r[5] for r in rows])
-        fk = [abs(r[4]) for r in rows if r[1] == "φсг" and r[4] == r[4] and not r[5]]
+        fk = [abs(r[4]) for r in rows if r[1] == "φк" and r[4] == r[4] and not r[5]]
         nbad = sum(1 for a, b in zip(g.base.variants, g.fine.variants)
                    if a.diverged or b.diverged)
         gb, gf = g.base_params, g.fine_params
         txt = "Базовая сетка %d×%d, мелкая %d×%d. " % (gb.IN, gb.JN, gf.IN, gf.JN)
         if fk:
-            txt += "Наибольшее отличие φсг: %.2f %%. " % max(fk)
+            txt += "Наибольшее отличие φк: %.2f %%. " % max(fk)
             txt += ("Результат практически не зависит от сетки."
                     if max(fk) < 1 else
                     "Отличие заметное - результат зависит от сетки.")

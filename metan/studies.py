@@ -1,5 +1,5 @@
 """Параметрические исследования: серии по любому параметру, подбор
-геометрии под максимум φсг, проверка на более мелкой сетке."""
+геометрии под максимум φк, проверка на более мелкой сетке."""
 
 import dataclasses
 import os
@@ -117,7 +117,7 @@ class OptResult:
 def optimize(params, names, bounds, alpha, max_evals=60, tol=0.02,
              progress=None, cancel=None):
     """Подбор параметров names в пределах bounds [(lo, hi), ...] на максимум
-    φсг при заданном α (поиск по образцу: шаги ± по каждой координате,
+    φк при заданном α (поиск по образцу: шаги ± по каждой координате,
     уменьшение шага при отсутствии улучшения). Расходящиеся и недопустимые
     варианты считаются худшими."""
     base = at_alpha(params, alpha)
@@ -213,7 +213,7 @@ class GridCheck:
         rows = []
         for a, b in zip(self.base.variants, self.fine.variants):
             ea, eb = exit_summary(a), exit_summary(b)
-            for name, x, y in (("φсг", a.fkomp, b.fkomp),
+            for name, x, y in (("φк", a.fkomp, b.fkomp),
                                ("Tвых, K", ea["T"], eb["T"]),
                                ("gCH4 вых", ea["CH4"], eb["CH4"]),
                                ("gO2 вых", ea["O2"], eb["O2"]),

@@ -118,7 +118,7 @@ class Params:
                      "Первые итерации - без уравнения вихря")
     NCORD: int = _p(2, "Постановка задачи", "", "", "calc",
                     "2 - осесимметричная, 1 - плоская", kind=(2, 1))
-    model: str = _p("corrected", "Формулы φсг и φβ", "", "", "calc",
+    model: str = _p("corrected", "Формулы φк и φβ", "", "", "calc",
                     kind=("corrected", "original"), hidden=True)
     precision: str = _p("float64", "Точность вычислений", "", "", "calc",
                         kind=("float64", "float32"), hidden=True)

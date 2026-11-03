@@ -8,7 +8,7 @@ from .params import Params
 
 # код результата -> (обозначение, название, единица)
 RESULTS = {
-    "fkomp": ("φсг", "коэффициент полноты сгорания", ""),
+    "fkomp": ("φк", "коэффициент полноты сгорания", ""),
     "eta": ("ηсг", "массовая полнота сгорания", ""),
     "FIbeta": ("φβ", "коэффициент расходного комплекса (по смешению)", ""),
     "ALFA": ("α", "коэффициент избытка окислителя", ""),
@@ -37,7 +37,7 @@ PARAMS = {n: (m["sym"] or n, m["label"], m["unit"])
 
 
 def sym(code):
-    """Обозначение величины: 'fkomp' -> 'φсг', 'DKR' -> 'dкр'."""
+    """Обозначение величины: 'fkomp' -> 'φк', 'DKR' -> 'dкр'."""
     if code in RESULTS:
         return RESULTS[code][0]
     if code in PARAMS:
@@ -46,7 +46,7 @@ def sym(code):
 
 
 def label(code, with_unit=True):
-    """'dкр, мм' / 'φсг'."""
+    """'dкр, мм' / 'φк'."""
     s = sym(code)
     u = RESULTS.get(code, PARAMS.get(code, ("", "", "")))[2]
     return "%s, %s" % (s, u) if (with_unit and u) else s

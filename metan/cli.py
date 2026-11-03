@@ -69,7 +69,7 @@ def main(argv=None):
     p10, p20 = res.write_files(a.outdir)
     if not a.quiet:
         for v in res.variants:
-            print("Вариант %d: α=%.2f  N=%d  φсг=%.5f%s" % (
+            print("Вариант %d: α=%.2f  N=%d  φк=%.5f%s" % (
                 v.NVAR, v.values["ALFA"], v.NITER, v.fkomp,
                 "  (расходимость!)" if v.diverged else ""))
         print("Время расчёта: %.1f с" % res.elapsed)

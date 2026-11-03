@@ -126,12 +126,12 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
                      "расходимость" if v.diverged else "сошёлся"))
     d.table("Основные результаты",
             ["№", "α", "Km", "ṁ, кг/с", "wг, м/с", "wок, м/с", "N",
-             "φсг", "φβ", "Tвых, K", "Статус"], rows)
+             "φк", "φβ", "Tвых, K", "Статус"], rows)
     if len(results.variants) > 1:
         xs = [v.values["ALFA"] for v in results.variants]
         ys = [v.fkomp for v in results.variants]
         d.figure(_fig_png(lambda f, a: plotting.draw_curves(
-            a, [("", xs, ys)], "α", "φсг"), size=(6, 3)),
+            a, [("", xs, ys)], "α", "φк"), size=(6, 3)),
             "Коэффициент полноты сгорания в зависимости от α")
     d.figure(_fig_png(lambda f, a: plotting.draw_convergence(a, results.variants[:3],
                                                              keys=("psi", "T"))),
@@ -164,20 +164,20 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         d.figure(_fig_png(lambda f, ax: plotting.draw_curves(
             ax, curves, "%s %s%s" % (meta["label"], sname,
                                     ", " + meta["unit"] if meta["unit"] else ""),
-            "φсг")),
-            "Коэффициент полноты сгорания φсг в зависимости от %s" % sname)
+            "φк")),
+            "Коэффициент полноты сгорания φк в зависимости от %s" % sname)
         rows = []
         for val, s, err in series.rows:
             rows.append([_fmt(val)] + ([("%.5f" % r["fkomp"]) if not r["diverged"]
                                         else "расх." for r in s] if s else
                                        [err] * max(1, len(alphas))))
-        d.table("φсг по серии %s" % sname,
+        d.table("φк по серии %s" % sname,
                 [sname] + ["α=%.2f" % a for a in alphas] if alphas
                 else [sname, "ошибка"], rows)
     if opt is not None:
-        d.h("%d. Подбор параметров на максимум φсг" % n)
+        d.h("%d. Подбор параметров на максимум φк" % n)
         n += 1
-        d.p("α = %.2f. Начальное значение φсг = %.5f, после подбора %.5f "
+        d.p("α = %.2f. Начальное значение φк = %.5f, после подбора %.5f "
             "(%d расчётов)." % (opt.alpha, opt.start_f, opt.best_f, len(opt.evals)))
         d.table("Результат подбора", ["Параметр", "Было", "Стало"],
                 [(notation.sym(nm), _fmt(a), _fmt(b)) for nm, a, b in

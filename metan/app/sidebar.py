@@ -121,6 +121,9 @@ class Sidebar(ctk.CTkFrame):
             button(bf, t, cmd).grid(row=0, column=n, sticky="ew",
                                     padx=(0 if n == 0 else 4, 0))
         self.restyle_tk()
+        for name in self.rows:
+            self._paint_row(name, pal(self.app.mode)["panel"])
+        self.open_section(self.current_section)
         self.rescale()
         self.load(Params())
 
@@ -157,17 +160,19 @@ class Sidebar(ctk.CTkFrame):
                 pass
 
     def _head(self, parent, title, sub, key):
-        fr = tk.Frame(parent, bd=0, highlightthickness=1, cursor="hand2")
-        self._reg(fr, bg="card", highlightbackground="line")
+        # скруглённая карточка; подписи - лёгкие tk.Label с тем же фоном
+        fr = ctk.CTkFrame(parent, fg_color=c("card"), corner_radius=10,
+                          border_width=1, border_color=c("line"),
+                          cursor="hand2")
         arrow = tk.Label(fr, text="▸", font=self.f_head, width=2, anchor="w")
         self._reg(arrow, bg="card", fg="muted")
         t = tk.Label(fr, text=title.upper(), font=self.f_head, anchor="w")
         self._reg(t, bg="card", fg="fg")
         s = tk.Label(fr, text=sub, font=self.f_sub, anchor="w", justify="left")
         self._reg(s, bg="card", fg="muted", wrap=255)
-        arrow.grid(row=0, column=0, rowspan=2, sticky="n", padx=(8, 0), pady=6)
-        t.grid(row=0, column=1, sticky="w", pady=(6, 0))
-        s.grid(row=1, column=1, sticky="w", pady=(0, 6), padx=(0, 8))
+        arrow.grid(row=0, column=0, rowspan=2, sticky="n", padx=(8, 0), pady=8)
+        t.grid(row=0, column=1, sticky="w", pady=(8, 0))
+        s.grid(row=1, column=1, sticky="w", pady=(0, 8), padx=(0, 10))
         fr.grid_columnconfigure(1, weight=1)
         for w in (fr, arrow, t, s):
             w.bind("<Button-1>", lambda e, k=key: self.open_section(k))
@@ -192,12 +197,15 @@ class Sidebar(ctk.CTkFrame):
                        variable=v, width=150 if names else 96)
             w.grid(row=0, column=1, sticky="e", pady=3)
         else:
-            w = tk.Entry(fr, textvariable=v, width=8, font=self.f_ent,
-                         relief="flat", bd=4, highlightthickness=1)
-            self._reg(w, bg="card", fg="fg", insertbackground="fg",
-                      highlightbackground="line", highlightcolor="accent",
-                      selectbackground="accent_soft", selectforeground="fg")
+            w = ctk.CTkEntry(fr, textvariable=v, width=96, height=30,
+                             fg_color=c("card"), border_color=c("line"),
+                             text_color=c("fg"), font=font(12, mono=True),
+                             corner_radius=8, border_width=1)
             w.grid(row=0, column=1, sticky="e", pady=3)
+            w.bind("<FocusIn>", lambda e, w=w: w.configure(
+                border_color=c("accent")), add="+")
+            w.bind("<FocusOut>", lambda e, w=w: w.configure(
+                border_color=c("line")), add="+")
         u = tk.Label(fr, text=meta.get("unit", ""), font=self.f_unit, width=6,
                      anchor="w")
         self._reg(u, bg="panel", fg="muted")
@@ -252,7 +260,8 @@ class Sidebar(ctk.CTkFrame):
             is_open = k == key
             head.arrow.configure(text="▾" if is_open else "▸")
             bg = p["accent_soft"] if is_open else p["card"]
-            for w in (head, head.arrow, head.title_lbl, head.sub_lbl):
+            head.configure(fg_color=bg)
+            for w in (head.arrow, head.title_lbl, head.sub_lbl):
                 w.configure(bg=bg)
             if is_open:
                 body.grid()
@@ -297,6 +306,11 @@ class Sidebar(ctk.CTkFrame):
         for ch in fr.winfo_children():
             if isinstance(ch, tk.Label):
                 ch.configure(bg=bg)
+            elif isinstance(ch, ctk.CTkBaseClass):
+                try:
+                    ch.configure(bg_color=bg)      # уголки скругления
+                except (ValueError, tk.TclError):
+                    pass
 
     # ------------------------------------------------------------ данные
     @staticmethod
@@ -394,6 +408,9 @@ class Sidebar(ctk.CTkFrame):
 
     def restyle(self):
         self.restyle_tk()
+        p = pal(self.app.mode)
+        for name in self.rows:
+            self._paint_row(name, p["panel"])
         if self._sel in self.rows:
             self._paint_row(self._sel, pal(self.app.mode)["accent_soft"])
         self.open_section(self.current_section)

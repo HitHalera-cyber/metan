@@ -25,20 +25,23 @@ from .widgets import (Canvas, Flow, Table, Tooltip, tabs, button, caps, entry, f
                       segmented)
 
 # Панель результатов справа: обозначение -> пояснение (при наведении)
-RIGHT_KEYS = ("φсг", "φβ", "Km", "β, м/с", "ṁ, кг/с", "wг, м/с", "wок, м/с",
-              "N", "Tвых, K", "gCH4 вых", "gO2 вых", "gCO2 вых")
+# (обозначение, размерность; «–» - безразмерная величина)
+RIGHT_KEYS = (("φк", "–"), ("φβ", "–"), ("Km", "–"), ("β", "м/с"),
+              ("ṁ", "кг/с"), ("wг", "м/с"), ("wок", "м/с"), ("N", "итер."),
+              ("Tвых", "K"), ("gCH4 вых", "–"), ("gO2 вых", "–"),
+              ("gCO2 вых", "–"))
 RIGHT_HELP = {
-    "φсг": "Коэффициент полноты сгорания: √(сгоревший CH4 / CH4, который мог "
-           "сгореть). 1 - сгорело всё возможное.",
+    "φк": "Коэффициент полноты сгорания в камере: √(сгоревший CH4 / CH4, "
+          "который мог сгореть). 1 - сгорело всё возможное.",
     "φβ": "Коэффициент расходного комплекса по смешению: среднерасходное "
           "β(α местного) на выходе, отнесённое к β(α).",
     "Km": "Массовое соотношение компонентов (O2/CH4), Km = 4·α.",
-    "β, м/с": "Расходный комплекс β(α) - характеристическая скорость.",
-    "ṁ, кг/с": "Расход топлива через сопло ṁ = pк·Fкр/β.",
-    "wг, м/с": "Скорость горючего на входе.",
-    "wок, м/с": "Скорость окислителя на входе.",
+    "β": "Расходный комплекс β(α) - характеристическая скорость.",
+    "ṁ": "Расход топлива через сопло ṁ = pк·Fкр/β.",
+    "wг": "Скорость горючего на входе.",
+    "wок": "Скорость окислителя на входе.",
     "N": "Число итераций. Больше заданного - расчёт разошёлся.",
-    "Tвых, K": "Среднемассовая температура в выходном сечении.",
+    "Tвых": "Среднемассовая температура в выходном сечении.",
     "gCH4 вых": "Среднемассовая доля несгоревшего метана на выходе.",
     "gO2 вых": "Среднемассовая доля кислорода на выходе.",
     "gCO2 вых": "Среднемассовая доля CO2 на выходе.",
@@ -151,7 +154,7 @@ class App(ctk.CTk):
             sel = n == self.variant_idx
             txt = "α = %.2f · %s" % (v.values["ALFA"],
                                      "расходится" if v.diverged
-                                     else "φсг %.3f" % v.fkomp)
+                                     else "φк %.3f" % v.fkomp)
             b = ctk.CTkButton(
                 self.chips_fr, text=txt, height=30, corner_radius=15,
                 font=font(12, mono=True), width=10,
@@ -174,7 +177,7 @@ class App(ctk.CTk):
             return ("Вариант α = %.2f: расчёт не сошёлся за отведённое число "
                     "итераций (N = %d), результаты недостоверны." % (a, v.NITER))
         return ("Вариант α = %.2f.\n"
-                "φсг = %.4f — коэффициент полноты сгорания "
+                "φк = %.4f — коэффициент полноты сгорания "
                 "(1 — сгорело всё, что могло сгореть).\n"
                 "φβ = %.4f — коэффициент расходного комплекса по смешению.\n"
                 "Нажмите, чтобы показать этот вариант."
@@ -238,14 +241,16 @@ class App(ctk.CTk):
         self.kv_fr.grid(row=1, column=0, sticky="ew", padx=16)
         self.kv_fr.grid_columnconfigure(1, weight=1)
         self.kv = {}
-        for n, key in enumerate(RIGHT_KEYS):
+        for n, (key, unit) in enumerate(RIGHT_KEYS):
             lab = label(self.kv_fr, key, 12, muted=True, anchor="w")
             lab.grid(row=n, column=0, sticky="w", pady=1)
             Tooltip(lab, lambda k=key: RIGHT_HELP.get(k, ""), self)
             lv = label(self.kv_fr, "—", 12, mono=True, anchor="e")
             lv.grid(row=n, column=1, sticky="e", pady=1)
+            label(self.kv_fr, unit, 11, muted=True, anchor="w", width=44).grid(
+                row=n, column=2, sticky="w", padx=(6, 0), pady=1)
             self.kv[key] = lv
-        self.mini_caps = label(rp, "φсг(α)", 12, bold=True, muted=True,
+        self.mini_caps = label(rp, "φк(α)", 12, bold=True, muted=True,
                                anchor="w")
         self.mini_caps.grid(row=2, column=0, sticky="w", padx=16, pady=(14, 4))
         box = ctk.CTkFrame(rp, fg_color=c("card"), corner_radius=12,
@@ -292,33 +297,40 @@ class App(ctk.CTk):
             ex = analysis.exit_summary(v)
             val = v.values
             self.res_caps.configure(text="РЕЗУЛЬТАТ · α = %.2f" % val["ALFA"])
-            data = {"φсг": "%.5f" % v.fkomp,
+            data = {"φк": "%.5f" % v.fkomp,
                     "φβ": "%.4f" % v.extra.get("FIbeta", float("nan")),
-                    "Km": "%.2f" % val["KM"], "β, м/с": "%.1f" % val["BETA"],
-                    "ṁ, кг/с": "%.5f" % val["Ms"],
-                    "wг, м/с": "%.1f" % val["Vgor"],
-                    "wок, м/с": "%.1f" % val["Vok"],
+                    "Km": "%.2f" % val["KM"], "β": "%.1f" % val["BETA"],
+                    "ṁ": "%.5f" % val["Ms"],
+                    "wг": "%.1f" % val["Vgor"],
+                    "wок": "%.1f" % val["Vok"],
                     "N": "%d%s" % (v.NITER, " расх." if v.diverged else ""),
-                    "Tвых, K": "%.0f" % ex["T"], "gCH4 вых": "%.4f" % ex["CH4"],
+                    "Tвых": "%.0f" % ex["T"], "gCH4 вых": "%.4f" % ex["CH4"],
                     "gO2 вых": "%.4f" % ex["O2"], "gCO2 вых": "%.4f" % ex["CO2"]}
             for k, lv in self.kv.items():
                 lv.configure(text=data[k],
                              text_color=c("danger") if v.diverged and k in
-                             ("φсг", "N") else c("fg"))
-        many = bool(self.results and len(self.results.variants) > 1)
-        for w in (self.mini_caps, self.mini_box):
-            (w.grid if many else w.grid_remove)()
+                             ("φк", "N") else c("fg"))
         self.mini.clear()
         ax = self.mini.add_subplot(111)
-        if many:
+        if self.results and self.results.variants:
             xs = [x.values["ALFA"] for x in self.results.variants]
             ys = [float("nan") if x.diverged else x.fkomp
                   for x in self.results.variants]
-            ax.plot(xs, ys, "o-", color=p["accent"], lw=2, ms=4)
+            ax.plot(xs, ys, "o-", color=p["accent"], lw=2,
+                    ms=4 if len(xs) > 1 else 7)
+            if len(xs) == 1 and ys[0] == ys[0]:
+                ax.annotate("%.4f" % ys[0], (xs[0], ys[0]), fontsize=8,
+                            color=p["fg"], textcoords="offset points",
+                            xytext=(8, -3))
+                ax.set_xlim(xs[0] - 0.3, xs[0] + 0.3)
+        else:
+            ax.text(0.5, 0.5, "после расчёта", ha="center", va="center",
+                    fontsize=8, color=p["muted"], transform=ax.transAxes)
             if v is not None:
                 ax.plot([v.values["ALFA"]], [v.fkomp], "o", ms=9, mfc="none",
                         mec=p["fg"])
         ax.tick_params(labelsize=7)
+        ax.set_xlabel("α", fontsize=8, labelpad=1)
         ax.grid(True, alpha=0.25)
         plotting.style(self.mini, self.mode)
         self.mini.tight_layout(pad=0.4)
@@ -588,6 +600,6 @@ def main(mode=None):
     from . import config
     from .splash import run_splash
     cfg = config.load()
-    run_splash("dawn", mode=mode or cfg.get("mode", "light"))
+    run_splash("city", mode=mode or cfg.get("mode", "light"))
     App(mode, cfg).mainloop()
     return 0
