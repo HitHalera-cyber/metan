@@ -81,7 +81,12 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     data_files()
     splash_png()
+    from tkinter import messagebox
     from metan.app.main import App
+
+    def no_box(title, text, *a, **k):     # окно-сообщение остановило бы съёмку
+        raise RuntimeError("%s: %s" % (title, text))
+    messagebox.showerror = messagebox.showinfo = messagebox.showwarning = no_box
     res = tempfile.mkdtemp()
 
     app = App("light", cfg={"mode": "light", "scale": 1.0, "right_panel": True})
@@ -134,6 +139,7 @@ def main():
     shot("big_Серии.jpg")
 
     app.show_page("Подбор")
+    pump(app, 1.0)                 # границы заполняются после открытия
     op = app.page
     op.alpha.set("1.0")
     op.maxev.set("16")
