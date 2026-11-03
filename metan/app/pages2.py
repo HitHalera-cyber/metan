@@ -18,28 +18,31 @@ from .theme import c, pal
 from .widgets import (Flow, Plot, Table, button, caps, check, entry, label, option,
                       segmented)
 
-METRICS = {"Fkomp": "fkomp", "T на выходе, K": "exit_T", "Ms, кг/с": "Ms",
-           "CH4 на выходе": "exit_CH4", "O2 на выходе": "exit_O2",
-           "CO2 на выходе": "exit_CO2"}
+METRICS = {"φсг": "fkomp", "Tвых, K": "exit_T", "ṁ, кг/с": "Ms",
+           "gCH4 вых": "exit_CH4", "gO2 вых": "exit_O2",
+           "gCO2 вых": "exit_CO2"}
 
 
 def _short(name):
-    """Обозначение, как в протоколе и методичке (DKAR -> Dprk)."""
-    lab = PARAM_META[name]["label"]
-    return lab.split()[-1] if lab else name
+    """Обозначение параметра (DKAR -> dпк)."""
+    return PARAM_META[name].get("sym") or name
 
 
 def _olabel(name):
     m = PARAM_META[name]
-    words = m["label"].split()
-    text = " ".join(words[:-1]) or name
-    text = text[0].lower() + text[1:]
+    text = m["label"][0].lower() + m["label"][1:]
     return "%s — %s" % (_short(name), text)
 
 
 def _plabel(name):
     m = PARAM_META[name]
-    return "%s — %s" % (name, m["label"])
+    return "%s — %s" % (_short(name), m["label"])
+
+
+def _axis(name):
+    m = PARAM_META[name]
+    return "%s %s%s" % (m["label"], _short(name),
+                        ", " + m["unit"] if m["unit"] else "")
 
 
 def open_folder(path, file=False):
@@ -73,7 +76,7 @@ class SeriesPage(Page):
             side="right")
         tb2 = self.toolbar(1)
         label(tb2, "Показать:", 12, muted=True).pack(side="left")
-        self.metric = tk.StringVar(value="Fkomp")
+        self.metric = tk.StringVar(value="φсг")
         segmented(tb2, list(METRICS), lambda _v: self.refresh(),
                   self.metric).pack(side="left", padx=8)
         # график и таблица - в окне с перетаскиваемой границей
@@ -116,7 +119,11 @@ class SeriesPage(Page):
             self.pane.sash_place(0, 0, max(160, int(h * 0.62)))
 
     def _pname(self):
-        return self.pname.get().split(" — ")[0]
+        lab = self.pname.get()
+        for n in studies.SERIES_PARAMS:
+            if _plabel(n) == lab:
+                return n
+        return "DKR"
 
     def _defaults(self):
         try:
@@ -173,14 +180,14 @@ class SeriesPage(Page):
         f.clear()
         ax = f.add_subplot(111)
         m = PARAM_META[s.name]
-        plotting.draw_curves(ax, curves, "%s, %s" % (m["label"], m["unit"]),
+        plotting.draw_curves(ax, curves, _axis(s.name),
                              self.metric.get(),
                              colors=plotting.THEMES[self.app.mode]["series"])
-        ax.set_title("%s в зависимости от %s" % (self.metric.get(), s.name),
+        ax.set_title("%s в зависимости от %s" % (self.metric.get(), _short(s.name)),
                      fontsize=11)
         self.plot.show()
         m = PARAM_META[s.name]
-        cols = ["%s, %s" % (s.name, m["unit"]) if m["unit"] else s.name] + \
+        cols = ["%s, %s" % (_short(s.name), m["unit"]) if m["unit"] else _short(s.name)] + \
             ["α = %.2f" % a for a in alphas]
         self.table.set_columns(cols)
         rows, bad = [], []
@@ -229,7 +236,8 @@ class OptimizePage(Page):
         row = Flow(right)
         row.grid(row=0, column=0, sticky="ew")
         label(row, "α", 12, muted=True).pack(side="left")
-        self.alpha = tk.StringVar(value="0.8")
+        self.alpha = tk.StringVar(
+            value=app.sidebar.vars["ALFA"].get() or "1.0")
         entry(row, self.alpha, 70).pack(side="left", padx=(4, 12))
         label(row, "макс. расчётов", 12, muted=True).pack(side="left")
         self.maxev = tk.StringVar(value="60")
@@ -245,9 +253,9 @@ class OptimizePage(Page):
         self.apply_btn = button(right, "Применить найденные значения",
                                 self.apply, width=240)
         self.apply_btn.grid(row=3, column=0, sticky="w", pady=8)
-        label(right, "Подбор максимизирует Fkomp при заданном α (формулы "
+        label(right, "Подбор максимизирует φсг при заданном α (формулы "
               "верны при любом α). При большом избытке окислителя (α ≳ 1.3) "
-              "горючее выгорает полностью и Fkomp = 1 почти везде - тогда "
+              "горючее выгорает полностью и φсг = 1 почти везде - тогда "
               "подбор мало что меняет.", 11, muted=True, wraplength=560,
               justify="left", anchor="w").grid(row=4, column=0, sticky="ew")
         self.plot = Plot(self, app, figsize=(8, 3))
@@ -290,7 +298,7 @@ class OptimizePage(Page):
         def done(res):
             self.app.opt = res
             self.refresh()
-            self.app.status("Подбор завершён: Fkomp %.5f → %.5f"
+            self.app.status("Подбор завершён: φсг %.5f → %.5f"
                             % (res.start_f, res.best_f))
 
         self.app.run_task(job, done, "Подбор параметров")
@@ -308,7 +316,7 @@ class OptimizePage(Page):
         if o is None:
             self.plot.message("Здесь появится ход подбора")
             return
-        self.result.configure(text="α = %.2f: Fkomp было %.5f, стало %.5f "
+        self.result.configure(text="α = %.2f: φсг было %.5f, стало %.5f "
                               "(%d расчётов)." % (o.alpha, o.start_f, o.best_f,
                                                   len(o.evals)))
         self.table.set_rows([(_short(n), "%.5g" % a, "%.5g" % b)
@@ -326,7 +334,7 @@ class OptimizePage(Page):
         ax.set_ylim(max(min([y for y in ys if y > -1] or [0]) - 0.01, 0),
                     1.005)
         ax.set_xlabel("номер расчёта")
-        ax.set_ylabel("Fkomp")
+        ax.set_ylabel("φсг")
         ax.grid(True, alpha=0.25)
         ax.legend(fontsize=9)
         self.plot.show()
@@ -462,10 +470,11 @@ class ComparePage(Page):
                          fontsize=11)
             self.plot.show()
         ea, eb = analysis.exit_summary(a), analysis.exit_summary(b)
-        rows = [("Fkomp", a.fkomp, b.fkomp), ("Ms, кг/с", a.values["Ms"],
-                                              b.values["Ms"]),
-                ("T на выходе, K", ea["T"], eb["T"])]
-        rows += [("%s на выходе" % n, ea[n], eb[n]) for n in ("CH4", "O2", "CO2")]
+        rows = [("φсг", a.fkomp, b.fkomp),
+                ("φβ", a.extra.get("FIbeta", np.nan), b.extra.get("FIbeta", np.nan)),
+                ("ṁ, кг/с", a.values["Ms"], b.values["Ms"]),
+                ("Tвых, K", ea["T"], eb["T"])]
+        rows += [("g%s вых" % n, ea[n], eb[n]) for n in ("CH4", "O2", "CO2")]
         self.table.set_rows([(n, "%.5g" % x, "%.5g" % y, "%+.3g" % (y - x))
                              for n, x, y in rows])
 
@@ -560,13 +569,13 @@ class GridCheckPage(Page):
               ("—" if rel != rel else "%+.2f" % rel) + (" расх." if bad else ""))
              for a, n, x, y, rel, bad in rows],
             bad=[r[5] for r in rows])
-        fk = [abs(r[4]) for r in rows if r[1] == "Fkomp" and r[4] == r[4] and not r[5]]
+        fk = [abs(r[4]) for r in rows if r[1] == "φсг" and r[4] == r[4] and not r[5]]
         nbad = sum(1 for a, b in zip(g.base.variants, g.fine.variants)
                    if a.diverged or b.diverged)
         gb, gf = g.base_params, g.fine_params
         txt = "Базовая сетка %d×%d, мелкая %d×%d. " % (gb.IN, gb.JN, gf.IN, gf.JN)
         if fk:
-            txt += "Наибольшее отличие Fkomp: %.2f %%. " % max(fk)
+            txt += "Наибольшее отличие φсг: %.2f %%. " % max(fk)
             txt += ("Результат практически не зависит от сетки."
                     if max(fk) < 1 else
                     "Отличие заметное - результат зависит от сетки.")

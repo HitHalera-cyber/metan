@@ -95,7 +95,7 @@ class Solver:
 
     def __init__(self, params=None, progress=None, cancel=None,
                  progress_every=10, track_history=True, snapshot_every=0):
-        self.p = (params or Params()).validate()
+        self.p = (params or Params()).validate().resolved()
         self.progress = progress
         self.cancel = cancel
         self.progress_every = progress_every
@@ -137,7 +137,9 @@ class Solver:
         self.P, self.H = F(p.P), F(p.H)
         self.ROM1, self.AKT = F(p.ROM1), F(p.AKT)
         self.ZMF2N, self.ZMO2N = F(p.ZMF2N), F(p.ZMO2N)
-        self.ALFA = F(p.ALFA)
+        # перед каждым вариантом к α прибавляется шаг (как в RK2.FOR), поэтому
+        # начинаем с α − Δα; округление убирает ошибку вычитания
+        self.ALFA = F(round(p.ALFA - p.DALFA, 12))
         self.DALFA = F(p.DALFA)
         for name in ("DKR", "DCMB", "DOGOR", "DELGOR", "DKAR", "DOOK", "DELOK",
                      "DKS", "DELKAR", "ALKS", "ALKD", "TGY"):

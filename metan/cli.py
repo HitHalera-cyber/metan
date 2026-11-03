@@ -5,7 +5,7 @@
     python -m metan --set ALFA=0.7 --set NVARM=3 --precision float32
     python -m metan --dump-params params.json   # сохранить параметры по умолчанию
     python -m metan gui                  # десктопная программа (новая)
-    python -m metan gui-classic          # прежняя версия интерфейса
+    python -m metan --fortran            # данные точно как в исходной программе
 """
 
 import argparse
@@ -25,9 +25,6 @@ def main(argv=None):
         from .app import main as gui_main
         return gui_main("dark" if "--dark" in argv else
                         ("light" if "--light" in argv else None))
-    if argv and argv[0] == "gui-classic":
-        from .gui_classic import main as classic_main
-        return classic_main()
 
     ap = argparse.ArgumentParser(prog="metan",
                                  description="Расчёт горения метана (перевод met21 с Фортрана)")
@@ -37,12 +34,15 @@ def main(argv=None):
                     help="изменить параметр (можно несколько раз)")
     ap.add_argument("--precision", choices=["float64", "float32"],
                     help="точность (по умолчанию float64)")
+    ap.add_argument("--fortran", action="store_true",
+                    help="данные и формулы точно как в исходной программе met21 "
+                         "(5 вариантов α, узлы сетки из BLOCK DATA)")
     ap.add_argument("--dump-params", metavar="ФАЙЛ",
                     help="записать параметры в JSON и выйти")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args(argv)
 
-    d = Params().to_dict()
+    d = (Params.fortran() if a.fortran else Params()).to_dict()
     if a.params:
         d.update(Params.load(a.params).to_dict())
     for s in a.set:
@@ -69,8 +69,8 @@ def main(argv=None):
     p10, p20 = res.write_files(a.outdir)
     if not a.quiet:
         for v in res.variants:
-            print("Вариант %d: ALFA=%.2f  NITER=%d  Fkomp(%s)=%.5f%s" % (
-                v.NVAR, v.values["ALFA"], v.NITER, v.fkomp_kind, v.fkomp,
+            print("Вариант %d: α=%.2f  N=%d  φсг=%.5f%s" % (
+                v.NVAR, v.values["ALFA"], v.NITER, v.fkomp,
                 "  (расходимость!)" if v.diverged else ""))
         print("Время расчёта: %.1f с" % res.elapsed)
         print("Записано:", p10, p20)

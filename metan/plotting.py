@@ -266,15 +266,15 @@ def draw_geometry(ax, v, *, grid=True, dims=True, fg="black",
             ax.text(xp + dx, r1 * 0.55, text, ha=side, va="center", **kw)
 
         top = rmax * 1.12
-        hdim(X1[1], X1[g["IC2"]], top, "Lprk %.1f" % X1[g["IC2"]])
+        hdim(X1[1], X1[g["IC2"]], top, "lпк %.1f" % X1[g["IC2"]])
         hdim(X1[g["IC2"]], X1[g["IC1"]], top,
-             "Lks %.1f" % (X1[g["IC1"]] - X1[g["IC2"]]))
+             "lц %.1f" % (X1[g["IC1"]] - X1[g["IC2"]]))
         hdim(X1[g["IC1"]], X1[g["IC"]], top,
              "конус %.1f" % (X1[g["IC"]] - X1[g["IC1"]]))
-        vdim(X1[g["IC2"]] * 0.5, X2[g["JA3"]], "Dprk %.1f" % (2 * X2[g["JA3"]]))
+        vdim(X1[g["IC2"]] * 0.5, X2[g["JA3"]], "dпк %.1f" % (2 * X2[g["JA3"]]))
         vdim((X1[g["IC2"]] + X1[g["IC1"]]) / 2, X2[g["JN"]],
-             "Dks %.1f" % (2 * X2[g["JN"]]))
-        vdim(X1[g["IC"]] - 0.6, X2[g["JC"]], "Dkr %.1f" % (2 * X2[g["JC"]]),
+             "Dк %.1f" % (2 * X2[g["JN"]]))
+        vdim(X1[g["IC"]] - 0.6, X2[g["JC"]], "dкр %.1f" % (2 * X2[g["JC"]]),
              side="right")
     ax.set_xlim(-1, x[-1] + 1)
     ax.set_ylim(-rmax * 1.3 if mirror else -0.08 * rmax, rmax * 1.35)

@@ -21,8 +21,28 @@ from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
                      SeriesPage, open_folder)
 from .sidebar import Sidebar
 from .theme import SANS, c, pal
-from .widgets import (Canvas, Flow, Table, Tooltip, button, caps, entry, font, label,
+from .widgets import (Canvas, Flow, Table, Tooltip, tabs, button, caps, entry, font, label,
                       segmented)
+
+# Панель результатов справа: обозначение -> пояснение (при наведении)
+RIGHT_KEYS = ("φсг", "φβ", "Km", "β, м/с", "ṁ, кг/с", "wг, м/с", "wок, м/с",
+              "N", "Tвых, K", "gCH4 вых", "gO2 вых", "gCO2 вых")
+RIGHT_HELP = {
+    "φсг": "Коэффициент полноты сгорания: √(сгоревший CH4 / CH4, который мог "
+           "сгореть). 1 - сгорело всё возможное.",
+    "φβ": "Коэффициент расходного комплекса по смешению: среднерасходное "
+          "β(α местного) на выходе, отнесённое к β(α).",
+    "Km": "Массовое соотношение компонентов (O2/CH4), Km = 4·α.",
+    "β, м/с": "Расходный комплекс β(α) - характеристическая скорость.",
+    "ṁ, кг/с": "Расход топлива через сопло ṁ = pк·Fкр/β.",
+    "wг, м/с": "Скорость горючего на входе.",
+    "wок, м/с": "Скорость окислителя на входе.",
+    "N": "Число итераций. Больше заданного - расчёт разошёлся.",
+    "Tвых, K": "Среднемассовая температура в выходном сечении.",
+    "gCH4 вых": "Среднемассовая доля несгоревшего метана на выходе.",
+    "gO2 вых": "Среднемассовая доля кислорода на выходе.",
+    "gCO2 вых": "Среднемассовая доля CO2 на выходе.",
+}
 
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
          SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
@@ -78,7 +98,7 @@ class App(ctk.CTk):
         tb.grid_columnconfigure(2, weight=1)
         label(tb, "METAN", 18, mono=True, bold=True).grid(row=0, column=0,
                                                          padx=(20, 10), pady=12)
-        label(tb, "горение CH4 + O2 · met21 · v%s" % __version__, 12,
+        label(tb, "горение CH4 + O2 в камере ЖРД", 12,
               muted=True).grid(row=0, column=1, sticky="w")
         pf = ctk.CTkFrame(tb, fg_color="transparent")
         pf.grid(row=0, column=3, padx=10)
@@ -95,18 +115,20 @@ class App(ctk.CTk):
         self.run_btn.grid(row=0, column=4, padx=6)
         self.stop_btn = button(tb, "Стоп", self.stop, width=70)
         self.stop_btn.grid(row=0, column=5, padx=6)
-        self.stop_btn.configure(state="disabled")
+        self.stop_btn.grid_remove()          # видна только во время расчёта
         button(tb, "Отчёт Word", self.report, width=110).grid(row=0, column=6,
                                                               padx=6)
-        self.menu_btn = button(tb, "Меню ▾", self._show_menu, width=90)
+        self.menu_btn = button(tb, "☰", self._show_menu, width=40)
         self.menu_btn.grid(row=0, column=7, padx=(6, 20))
         ctk.CTkFrame(self, fg_color=c("line"), height=1, corner_radius=0).grid(
             row=0, column=0, columnspan=3, sticky="sew")
 
     def _chips(self):
+        # ряд вариантов показывается, только когда посчитано несколько α
         fr = ctk.CTkFrame(self, fg_color=c("bg"), corner_radius=0, height=50)
         fr.grid(row=1, column=0, columnspan=3, sticky="ew")
-        caps(fr, "Варианты").pack(side="left", anchor="n", padx=(20, 10), pady=16)
+        self.chips_row = fr
+        caps(fr, "Варианты α").pack(side="left", anchor="n", padx=(20, 10), pady=16)
         self.chips_fr = Flow(fr)
         self.chips_fr.pack(side="left", fill="x", expand=True, padx=(0, 16),
                            pady=8)
@@ -114,26 +136,31 @@ class App(ctk.CTk):
         self.chips_hint = label(self.chips_fr, "появятся после расчёта", 12,
                                 muted=True)
         self.chips_hint.pack(side="left")
+        fr.grid_remove()
 
     def _build_chips(self):
         for b in self.chip_btns:
             b.destroy()
         self.chips_fr.remove(self.chips_hint)
         self.chip_btns = []
+        if len(self.results.variants) > 1:
+            self.chips_row.grid()
+        else:
+            self.chips_row.grid_remove()
         for n, v in enumerate(self.results.variants):
             sel = n == self.variant_idx
             txt = "α = %.2f · %s" % (v.values["ALFA"],
                                      "расходится" if v.diverged
-                                     else "Fkomp %.3f" % v.fkomp)
+                                     else "φсг %.3f" % v.fkomp)
             b = ctk.CTkButton(
-                self.chips_fr, text=txt, height=32, corner_radius=16,
+                self.chips_fr, text=txt, height=30, corner_radius=15,
                 font=font(12, mono=True), width=10,
-                fg_color=c("accent") if sel else c("card"),
+                fg_color=c("accent") if sel else "transparent",
                 hover_color=c("accent_hover") if sel else c("accent_soft"),
                 text_color=c("on_accent") if sel else
                 (c("danger") if v.diverged else c("fg")),
-                border_width=1, border_color=c("accent") if sel else
-                (c("danger") if v.diverged else c("line")),
+                border_width=0 if sel else 1,
+                border_color=c("danger") if v.diverged else c("line"),
                 command=lambda n=n: self.select_variant(n))
             b.pack(side="left", padx=4)
             Tooltip(b, lambda v=v: self._chip_tip(v), self)
@@ -145,12 +172,12 @@ class App(ctk.CTk):
         a = v.values["ALFA"]
         if v.diverged:
             return ("Вариант α = %.2f: расчёт не сошёлся за отведённое число "
-                    "итераций (NITER = %d), результаты недостоверны." % (a, v.NITER))
-        return ("Вариант α = %.2f (коэффициент избытка окислителя).\n"
-                "Fkomp = %.4f — коэффициент полноты сгорания на выходе "
+                    "итераций (N = %d), результаты недостоверны." % (a, v.NITER))
+        return ("Вариант α = %.2f.\n"
+                "φсг = %.4f — коэффициент полноты сгорания "
                 "(1 — сгорело всё, что могло сгореть).\n"
-                "FIbeta = %.4f — коэффициент расходного комплекса β с учётом "
-                "неравномерности смешения.\nНажмите, чтобы показать этот вариант."
+                "φβ = %.4f — коэффициент расходного комплекса по смешению.\n"
+                "Нажмите, чтобы показать этот вариант."
                 % (a, v.fkomp, v.extra.get("FIbeta", float("nan"))))
 
     # ------------------------------------------------------------ центр
@@ -160,9 +187,8 @@ class App(ctk.CTk):
         ws.grid_columnconfigure(0, weight=1)
         ws.grid_rowconfigure(1, weight=1)
         self.nav_var = tk.StringVar(value=PAGES[0].title)
-        segmented(ws, [p.title for p in PAGES], self.show_page,
-                  self.nav_var, wrap=True).grid(row=0, column=0, sticky="ew",
-                                                pady=(0, 4))
+        tabs(ws, [p.title for p in PAGES], self.show_page,
+             self.nav_var).grid(row=0, column=0, sticky="ew", pady=(0, 10))
         holder = ctk.CTkFrame(ws, fg_color="transparent")
         holder.grid(row=1, column=0, sticky="nsew")
         holder.grid_columnconfigure(0, weight=1)
@@ -212,19 +238,20 @@ class App(ctk.CTk):
         self.kv_fr.grid(row=1, column=0, sticky="ew", padx=16)
         self.kv_fr.grid_columnconfigure(1, weight=1)
         self.kv = {}
-        for n, key in enumerate(("Fkomp", "FIbeta", "KM", "BETA", "Ms, кг/с", "Vгор, м/с",
-                                 "Vок, м/с", "NITER", "T вых, K", "CH4 вых",
-                                 "O2 вых", "CO2 вых")):
-            label(self.kv_fr, key, 12, muted=True, anchor="w").grid(
-                row=n, column=0, sticky="w", pady=1)
+        for n, key in enumerate(RIGHT_KEYS):
+            lab = label(self.kv_fr, key, 12, muted=True, anchor="w")
+            lab.grid(row=n, column=0, sticky="w", pady=1)
+            Tooltip(lab, lambda k=key: RIGHT_HELP.get(k, ""), self)
             lv = label(self.kv_fr, "—", 12, mono=True, anchor="e")
             lv.grid(row=n, column=1, sticky="e", pady=1)
             self.kv[key] = lv
-        caps(rp, "Fkomp(α)").grid(row=2, column=0, sticky="w", padx=16,
-                                  pady=(14, 4))
+        self.mini_caps = label(rp, "φсг(α)", 12, bold=True, muted=True,
+                               anchor="w")
+        self.mini_caps.grid(row=2, column=0, sticky="w", padx=16, pady=(14, 4))
         box = ctk.CTkFrame(rp, fg_color=c("card"), corner_radius=12,
                            border_width=1, border_color=c("line"))
         box.grid(row=3, column=0, sticky="ew", padx=12)
+        self.mini_box = box
         self.mini = Figure(figsize=(2.6, 1.7), dpi=96)
         self.mini_canvas = Canvas(self.mini, master=box)
         self.mini_canvas.get_tk_widget().configure(highlightthickness=0)
@@ -237,7 +264,8 @@ class App(ctk.CTk):
         entry(of, self.outdir, 200, mono=False).grid(row=0, column=0, sticky="ew")
         button(of, "…", self._choose_outdir, width=36).grid(row=0, column=1,
                                                             padx=(4, 0))
-        self.files_lbl = label(rp, "shi10.dat, shi20.dat - после расчёта", 11,
+        self.files_lbl = label(rp, "Протокол shi10.dat и поля shi20.dat - "
+                               "после расчёта", 11,
                                muted=True, anchor="w", justify="left",
                                wraplength=250)
         self.files_lbl.grid(row=6, column=0, sticky="ew", padx=16, pady=4)
@@ -263,23 +291,26 @@ class App(ctk.CTk):
         else:
             ex = analysis.exit_summary(v)
             val = v.values
-            self.res_caps.configure(text="РЕЗУЛЬТАТ · α %.2f" % val["ALFA"])
-            data = {"Fkomp": "%.5f (%s)" % (v.fkomp, v.fkomp_kind.lower()),
-                    "FIbeta": "%.4f" % v.extra.get("FIbeta", float("nan")),
-                    "KM": "%.2f" % val["KM"], "BETA": "%.1f" % val["BETA"],
-                    "Ms, кг/с": "%.5f" % val["Ms"],
-                    "Vгор, м/с": "%.1f" % val["Vgor"],
-                    "Vок, м/с": "%.1f" % val["Vok"],
-                    "NITER": "%d%s" % (v.NITER, " расх." if v.diverged else ""),
-                    "T вых, K": "%.0f" % ex["T"], "CH4 вых": "%.4f" % ex["CH4"],
-                    "O2 вых": "%.4f" % ex["O2"], "CO2 вых": "%.4f" % ex["CO2"]}
+            self.res_caps.configure(text="РЕЗУЛЬТАТ · α = %.2f" % val["ALFA"])
+            data = {"φсг": "%.5f" % v.fkomp,
+                    "φβ": "%.4f" % v.extra.get("FIbeta", float("nan")),
+                    "Km": "%.2f" % val["KM"], "β, м/с": "%.1f" % val["BETA"],
+                    "ṁ, кг/с": "%.5f" % val["Ms"],
+                    "wг, м/с": "%.1f" % val["Vgor"],
+                    "wок, м/с": "%.1f" % val["Vok"],
+                    "N": "%d%s" % (v.NITER, " расх." if v.diverged else ""),
+                    "Tвых, K": "%.0f" % ex["T"], "gCH4 вых": "%.4f" % ex["CH4"],
+                    "gO2 вых": "%.4f" % ex["O2"], "gCO2 вых": "%.4f" % ex["CO2"]}
             for k, lv in self.kv.items():
                 lv.configure(text=data[k],
                              text_color=c("danger") if v.diverged and k in
-                             ("Fkomp", "NITER") else c("fg"))
+                             ("φсг", "N") else c("fg"))
+        many = bool(self.results and len(self.results.variants) > 1)
+        for w in (self.mini_caps, self.mini_box):
+            (w.grid if many else w.grid_remove)()
         self.mini.clear()
         ax = self.mini.add_subplot(111)
-        if self.results and len(self.results.variants) > 0:
+        if many:
             xs = [x.values["ALFA"] for x in self.results.variants]
             ys = [float("nan") if x.diverged else x.fkomp
                   for x in self.results.variants]
@@ -360,7 +391,7 @@ class App(ctk.CTk):
         self.busy = True
         self.cancel_ev.clear()
         self.run_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
+        self.stop_btn.grid()
         self.pbar.set(0)
         self.prog_lbl.configure(text=title + "… (первый запуск - компиляция)")
 
@@ -388,7 +419,7 @@ class App(ctk.CTk):
                     continue
                 self.busy = False
                 self.run_btn.configure(state="normal")
-                self.stop_btn.configure(state="disabled")
+                self.stop_btn.grid_remove()
                 if msg[0] == "done":
                     self.pbar.set(1)
                     self.prog_lbl.configure(text="Готово")
@@ -433,8 +464,8 @@ class App(ctk.CTk):
             self.add_run(res)
             self._build_chips()
             self._update_right()
-            self.files_lbl.configure(text="Записано:\n" + "\n".join(
-                os.path.abspath(f) for f in files))
+            self.files_lbl.configure(text="Записано: " + ", ".join(
+                os.path.basename(f) for f in files))
             bad = sum(v.diverged for v in res.variants)
             self.status("Расчёт за %.1f с.%s" % (
                 res.elapsed, " Расходимость в %d вариантах!" % bad if bad else ""))
@@ -479,7 +510,6 @@ class App(ctk.CTk):
         config.save(self.cfg)
 
     def _show_menu(self):
-        from .splash import STORIES
         m = tk.Menu(self, tearoff=False, font=(SANS, 11))
         m.add_command(label="Светлая тема" if self.mode == "dark"
                       else "Тёмная тема", command=self.toggle_theme)
@@ -490,21 +520,8 @@ class App(ctk.CTk):
                                variable=self._scale_var,
                                command=lambda v=v: self.set_scale(v))
         m.add_cascade(label="Масштаб интерфейса", menu=sm)
-        spm = tk.Menu(m, tearoff=False, font=(SANS, 11))
-        self._splash_var = tk.StringVar(value=self.cfg.get("splash", "city"))
-        for key, (title, _) in STORIES.items():
-            spm.add_radiobutton(label=title, value=key, variable=self._splash_var,
-                                command=lambda k=key: self._set_cfg("splash", k))
-        spm.add_radiobutton(label="Без заставки", value="none",
-                            variable=self._splash_var,
-                            command=lambda: self._set_cfg("splash", "none"))
-        m.add_cascade(label="Заставка при запуске", menu=spm)
         m.add_command(label=("Скрыть" if self.rp.winfo_ismapped() else "Показать")
                       + " панель результатов", command=self.toggle_right)
-        m.add_separator()
-        m.add_command(label="Руководство пользователя (Word)",
-                      command=self.open_manual)
-        m.add_command(label="О программе", command=self.about)
         b = self.menu_btn
         m.tk_popup(b.winfo_rootx(), b.winfo_rooty() + b.winfo_height())
 
@@ -530,6 +547,7 @@ class App(ctk.CTk):
             self.update_idletasks()
             Flow.relayout_all()
             Table.restyle_all()
+            self.sidebar.rescale()
             self.update_idletasks()
         finally:
             self.configure(cursor="")
@@ -542,22 +560,6 @@ class App(ctk.CTk):
         else:
             self.rp.grid()
             self._set_cfg("right_panel", True)
-
-    def open_manual(self):
-        from .assets import manual_path
-        path = manual_path()
-        if not path:
-            messagebox.showinfo("Руководство", "Файл руководства не найден.")
-            return
-        open_folder(path, file=True)
-
-    def about(self):
-        messagebox.showinfo(
-            "О программе",
-            "Metan %s\nРасчёт горения метана в камере сгорания.\n"
-            "Python-версия программы met21 (Фортран, RK1–RK7.FOR).\n"
-            "При точности float64 результаты совпадают с Фортраном "
-            "побайтно." % __version__)
 
     # ------------------------------------------------------------ тема
     def toggle_theme(self):
@@ -586,7 +588,6 @@ def main(mode=None):
     from . import config
     from .splash import run_splash
     cfg = config.load()
-    run_splash(cfg.get("splash", "city"),
-               mode=mode or cfg.get("mode", "light"))
+    run_splash("dawn", mode=mode or cfg.get("mode", "light"))
     App(mode, cfg).mainloop()
     return 0

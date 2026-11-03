@@ -13,7 +13,7 @@ def test_fields_do_not_depend_on_model():
 
 
 def test_corrected_coefficients_physical():
-    r = Solver(Params(ALFA=0.4, DALFA=0.2, NVARM=6)).run()
+    r = Solver(Params(ALFA=0.6, DALFA=0.2, NVARM=6)).run()
     for v in r.variants:
         assert 0.0 <= v.fkomp <= 1.0
         assert 0.0 < v.extra["eta"] <= 1.0

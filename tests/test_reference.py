@@ -27,12 +27,12 @@ def _fields(lines):
 
 @pytest.fixture(scope="module")
 def res64():
-    return Solver(Params(model="original")).run()
+    return Solver(Params.fortran()).run()
 
 
 @pytest.fixture(scope="module")
 def res32():
-    return Solver(Params(precision="float32", model="original")).run()
+    return Solver(Params.fortran(precision="float32")).run()
 
 
 def test_float64_protocol_identical(res64):

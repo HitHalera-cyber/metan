@@ -4,7 +4,7 @@ import json
 import os
 import sys
 
-DEFAULTS = {"mode": "light", "scale": 1.0, "splash": "city",
+DEFAULTS = {"mode": "light", "scale": 1.0,
             "right_panel": None}   # None - по размеру экрана
 
 
@@ -16,9 +16,6 @@ def _path():
     return os.path.join(base, "Metan", "config.json")
 
 
-SPLASH_REV = 2      # при смене заставки по умолчанию - увеличить
-
-
 def load():
     d = dict(DEFAULTS)
     try:
@@ -26,10 +23,8 @@ def load():
             d.update(json.load(fh))
     except (OSError, ValueError):
         pass
-    if d.get("splash_rev", 0) < SPLASH_REV:
-        # новая заставка по умолчанию заменяет сохранённую старую
-        d["splash"] = DEFAULTS["splash"]
-        d["splash_rev"] = SPLASH_REV
+    for old in ("splash", "splash_rev"):       # от версий до 1.3
+        d.pop(old, None)
     return d
 
 

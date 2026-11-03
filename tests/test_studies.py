@@ -5,7 +5,7 @@ from metan.kernels import NT
 
 
 def small(**kw):
-    d = dict(NVARM=2, NMAX=60, NPRINT=20)
+    d = dict(ALFA=0.8, NVARM=2, NMAX=60, NPRINT=20)
     d.update(kw)
     return Params(**d)
 

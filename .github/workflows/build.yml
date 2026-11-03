@@ -35,7 +35,14 @@ jobs:
           $v = python -c "import metan; print(metan.__version__)"
           "version=$v" >> $env:GITHUB_OUTPUT
       - run: python -m PyInstaller --noconfirm --windowed --name Metan --icon metan/app/assets_data/metan.ico --collect-data customtkinter --collect-data docx --collect-data metan metan_gui.pyw
-      - run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic --icon metan/app/assets_data/metan.ico --collect-data metan metan_classic.pyw
+      # прежняя версия - из ветки classic, без изменений
+      - uses: actions/checkout@v4
+        with:
+          ref: classic
+          path: classic_src
+      - name: Build Metan-Classic from branch classic
+        working-directory: classic_src
+        run: python -m PyInstaller --noconfirm --windowed --name Metan-Classic --icon ../metan/app/assets_data/metan.ico --collect-data metan --distpath ../dist --workpath ../build_classic metan_gui.pyw
       - name: Add manual and shortcut script
         shell: pwsh
         run: |

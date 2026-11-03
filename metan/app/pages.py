@@ -76,19 +76,9 @@ class FieldsPage(Page):
         button(tb2, "CSV", self.export_csv, width=60).pack(side="right")
         button(tb2, "Рисунок…", self.save_fig, width=90).pack(
             side="right", padx=6)
-        button(tb2, "Как в методичке", self.book, width=140).pack(side="right")
         self.plot = Plot(self, app)
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.grid_rowconfigure(2, weight=1)
-
-    def book(self):
-        self.qty.set(VAR_NAMES[NF])
-        self.style_var.set("Изолинии")
-        self.mirror.set(False)
-        self.labels.set(True)
-        self.meters.set(True)
-        self.stream.set(False)
-        self.refresh()
 
     def refresh(self):
         v = self.app.variant
@@ -506,9 +496,9 @@ class GeometryPage(Page):
         g, X1, X2 = pv.grid, pv.X1 * 1000, pv.X2 * 1000
         dx = np.diff(X1[1:g["IN"] + 1])
         dr = np.diff(X2[1:g["JN"] + 1])
-        txt = ("Узлов: предкамера %d, цилиндр %d, конус %d, выход %d по длине; "
-               "по радиусу %d. Шаг по x от %.2f до %.2f мм, по r от %.2f до %.2f мм. "
-               "Критика: JC=%d, IC=%d." % (
+        txt = ("Интервалов по длине: предкамера %d, цилиндр %d, конус %d, "
+               "выход %d; по радиусу %d. Шаг по x от %.2f до %.2f мм, по r от %.2f до %.2f мм. "
+               "Критическое сечение: узел %d по радиусу, %d по длине." % (
                    g["IC2"] - 1, g["IC1"] - g["IC2"], g["IC"] - g["IC1"],
                    g["IN"] - g["IC"], g["JN"] - 1, dx.min(), dx.max(),
                    dr.min(), dr.max(), g["JC"], g["IC"]))

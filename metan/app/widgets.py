@@ -20,7 +20,9 @@ def font(size=13, weight="normal", mono=False):
 
 def caps(master, text):
     """Заголовок раздела прописными буквами."""
-    return ctk.CTkLabel(master, text=text.upper(), font=font(11, "bold"),
+    up = "".join(ch if "α" <= ch <= "ω" or ch in "ṁ" else ch.upper()
+                 for ch in text)      # греческие буквы-обозначения не трогаем
+    return ctk.CTkLabel(master, text=up, font=font(11, "bold"),
                         text_color=c("muted"), anchor="w")
 
 
@@ -93,8 +95,10 @@ class Flow(ctk.CTkFrame):
 
     _all = weakref.WeakSet()
 
-    def __init__(self, master, wrap=True, row_gap=6, **kw):
-        super().__init__(master, fg_color="transparent", height=10, **kw)
+    def __init__(self, master, wrap=True, row_gap=6, inner=0, **kw):
+        kw.setdefault("fg_color", "transparent")
+        super().__init__(master, height=10, **kw)
+        self.inner = inner       # внутренний отступ от края рамки
         self.wrap = wrap
         self.row_gap = row_gap
         self._spec = {}          # виджет -> (side, padx, expand)
@@ -171,7 +175,8 @@ class Flow(ctk.CTkFrame):
         if not items:
             return
         k = _scaling(self)
-        avail = width or self.winfo_width()
+        m = self.inner * k
+        avail = (width or self.winfo_width()) - 2 * m
         if avail <= 1:
             avail = 10 ** 6
         wrap_at = avail if self.wrap else 10 ** 6
@@ -194,12 +199,12 @@ class Flow(ctk.CTkFrame):
             cur.append(w)
             x += ww
         rows.append(cur)
-        y = 0
+        y = m
         for n, row in enumerate(rows):
             h = max(w.winfo_reqheight() for w in row)
             lefts = [w for w in row if self._spec[w][0] != "right"]
             rights = [w for w in row if self._spec[w][0] == "right"]
-            x = 0.0
+            x = m
             for w in lefts:
                 side, pad, expand = self._spec[w]
                 x += pad[0] * k
@@ -213,7 +218,8 @@ class Flow(ctk.CTkFrame):
                           *sum((("-" + a, b) for a, b in kw.items()), ()))
                 self._laid[w] = ww
                 x += ww + pad[1] * k
-            xr = float(avail) if avail < 10 ** 6 else x + sum(size(r) for r in rights)
+            xr = float(avail) + m if avail < 10 ** 6 else \
+                x + sum(size(r) for r in rights)
             for w in reversed(rights):
                 side, pad, expand = self._spec[w]
                 xr -= pad[1] * k + w.winfo_reqwidth()
@@ -227,8 +233,8 @@ class Flow(ctk.CTkFrame):
         # чтобы рамка не распирала родителя)
         nat = sum(size(w) for w in seq) if not self.wrap else \
             max(size(w) for w in seq)
-        new_w = max(1, int(round(nat / k)) + 1)
-        new_h = max(1, int(round(y / k)))
+        new_w = max(1, int(round((nat + 2 * m) / k)) + 1)
+        new_h = max(1, int(round((y + m) / k)))
         if new_h != self.cget("height") or new_w != self.cget("width"):
             self.configure(height=new_h, width=new_w)
 
@@ -249,23 +255,36 @@ class Flow(ctk.CTkFrame):
 
 
 class PillGroup(Flow):
-    """Группа кнопок-плашек с одной выбранной (замена CTkSegmentedButton).
+    """Группа кнопок с одной выбранной (замена CTkSegmentedButton).
 
-    Каждая кнопка подстраивается под длину текста при любом масштабе
-    Windows; при wrap=True ряд переносится, если не хватает ширины.
+    style="segmented" - компактная «дорожка» (общий фон, выбранная кнопка
+    залита акцентом), style="tabs" - плоские вкладки навигации без рамок.
+    Кнопки подстраиваются под длину текста при любом масштабе; при
+    wrap=True ряд переносится, если не хватает ширины.
     """
 
     def __init__(self, master, values, command=None, variable=None, wrap=False,
-                 size=12):
-        super().__init__(master, wrap=wrap)
+                 size=12, style="segmented"):
+        self.style = style
+        if style == "segmented":
+            super().__init__(master, wrap=wrap, fg_color=c("card"),
+                             corner_radius=17, border_width=1,
+                             border_color=c("line"), row_gap=2, inner=3)
+        else:
+            super().__init__(master, wrap=wrap, row_gap=4)
         self.command = command
         self.var = variable or tk.StringVar(value=values[0])
         self.buttons = {}
+        pad = (2, 0) if style == "segmented" else (0, 2)
         for v in values:
-            b = ctk.CTkButton(self, text=v, width=20, height=32,
-                              corner_radius=16, border_width=1,
-                              font=font(size), command=lambda v=v: self._click(v))
-            b.pack(side="left", padx=(0, 6))
+            b = ctk.CTkButton(self, text=v, width=20,
+                              height=28 if style == "segmented" else 32,
+                              corner_radius=14 if style == "segmented" else 9,
+                              border_width=0, fg_color="transparent",
+                              font=font(size, "bold" if style == "tabs"
+                                        else "normal"),
+                              command=lambda v=v: self._click(v))
+            b.pack(side="left", padx=pad)
             self.buttons[v] = b
         self.relayout()
         self.var.trace_add("write", lambda *a: self._paint())
@@ -280,10 +299,15 @@ class PillGroup(Flow):
         cur = self.var.get()
         for v, b in self.buttons.items():
             sel = v == cur
-            b.configure(fg_color=c("accent") if sel else c("card"),
-                        hover_color=c("accent_hover") if sel else c("accent_soft"),
-                        text_color=c("on_accent") if sel else c("fg"),
-                        border_color=c("accent") if sel else c("line"))
+            if self.style == "segmented":
+                b.configure(fg_color=c("accent") if sel else "transparent",
+                            hover_color=c("accent_hover") if sel
+                            else c("accent_soft"),
+                            text_color=c("on_accent") if sel else c("fg"))
+            else:
+                b.configure(fg_color=c("accent_soft") if sel else "transparent",
+                            hover_color=c("accent_soft"),
+                            text_color=c("accent") if sel else c("muted"))
 
     def set(self, v):
         self.var.set(v)
@@ -294,6 +318,12 @@ class PillGroup(Flow):
 
 def segmented(master, values, command=None, variable=None, wrap=False):
     return PillGroup(master, values, command, variable, wrap=wrap)
+
+
+def tabs(master, values, command=None, variable=None):
+    """Навигация по вкладкам рабочей области."""
+    return PillGroup(master, values, command, variable, wrap=True, size=13,
+                     style="tabs")
 
 
 def check(master, text, var, command=None):
@@ -407,15 +437,31 @@ class Plot(ctk.CTkFrame):
         p = pal(self.app.mode)
         self.canvas.get_tk_widget().configure(background=p["card"])
         if self.toolbar is not None:
-            # значки панели чёрные - в тёмной теме нужен светлый фон под ними
-            tbg = p["card"] if self.app.mode == "light" else p["muted"]
-            self.toolbar.configure(background=tbg)
-            for ch in self.toolbar.winfo_children():
+            # плоская панель в цвет карточки; matplotlib сам перекрашивает
+            # значки в цвет текста, если фон тёмный
+            tb = self.toolbar
+            tb.configure(background=p["card"])
+            for ch in tb.winfo_children():
                 try:
-                    ch.configure(background=tbg)
-                    ch.configure(foreground="#12201d")
+                    ch.configure(background=p["card"])
                 except tk.TclError:
-                    pass
+                    continue
+                for opt, val in (("foreground", p["fg"]),
+                                 ("activebackground", p["accent_soft"]),
+                                 ("activeforeground", p["fg"]),
+                                 ("relief", "flat"), ("bd", 0),
+                                 ("highlightthickness", 0),
+                                 ("overrelief", "flat"),
+                                 ("selectcolor", p["accent_soft"])):
+                    try:
+                        ch.configure(**{opt: val})
+                    except tk.TclError:
+                        pass
+                if hasattr(ch, "_image_file"):
+                    try:
+                        NavigationToolbar2Tk._set_image_for_button(tb, ch)
+                    except Exception:
+                        pass
 
     @property
     def theme(self):

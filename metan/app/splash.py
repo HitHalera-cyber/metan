@@ -513,7 +513,7 @@ def _warmup(status):
         importlib.import_module(mod)
 
 
-def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
+def run_splash(key="dawn", min_time=4.0, max_time=180, mode="dark"):
     """Показать заставку, пока идёт подготовка. key="none" - без заставки
     (подготовка всё равно выполняется)."""
     if key not in STORIES:

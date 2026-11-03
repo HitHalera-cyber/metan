@@ -7,7 +7,7 @@ import matplotlib
 from matplotlib.figure import Figure
 
 from . import __version__
-from . import plotting
+from . import notation, plotting
 from .analysis import exit_summary
 from .kernels import NF, NT
 from .params import Params
@@ -101,9 +101,11 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
     d.h("1. Исходные данные")
     rows = []
     for name, _, meta in Params.field_info():
-        if name in ("out10", "out20"):
+        if meta.get("hidden") or not meta.get("sym"):
             continue
-        rows.append((meta["label"], name, getattr(p, name), meta["unit"]))
+        if name in ("DALFA", "NVARM") and p.NVARM == 1:
+            continue
+        rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
 
@@ -118,17 +120,18 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         val = v.values
         rows.append((v.NVAR, "%.2f" % val["ALFA"], "%.2f" % val["KM"],
                      _fmt(val["Ms"]), "%.1f" % val["Vgor"], "%.1f" % val["Vok"],
-                     v.NITER, "%.5f (%s)" % (v.fkomp, v.fkomp_kind.lower()),
+                     v.NITER, "%.5f" % v.fkomp,
+                     "%.4f" % v.extra.get("FIbeta", float("nan")),
                      "%.0f" % ex["T"],
                      "расходимость" if v.diverged else "сошёлся"))
     d.table("Основные результаты",
-            ["№", "α", "KM", "Ms, кг/с", "Vгор, м/с", "Vок, м/с", "NITER",
-             "Fkomp", "T вых, K", "Статус"], rows)
+            ["№", "α", "Km", "ṁ, кг/с", "wг, м/с", "wок, м/с", "N",
+             "φсг", "φβ", "Tвых, K", "Статус"], rows)
     if len(results.variants) > 1:
         xs = [v.values["ALFA"] for v in results.variants]
         ys = [v.fkomp for v in results.variants]
         d.figure(_fig_png(lambda f, a: plotting.draw_curves(
-            a, [("", xs, ys)], "α", "Fkomp"), size=(6, 3)),
+            a, [("", xs, ys)], "α", "φсг"), size=(6, 3)),
             "Коэффициент полноты сгорания в зависимости от α")
     d.figure(_fig_png(lambda f, a: plotting.draw_convergence(a, results.variants[:3],
                                                              keys=("psi", "T"))),
@@ -150,7 +153,8 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
     if series is not None:
         from .params import Params as _P
         meta = {k: m for k, _, m in _P.field_info()}[series.name]
-        d.h("%d. Серия расчётов по параметру %s" % (n, series.name))
+        sname = meta["sym"] or series.name
+        d.h("%d. Серия расчётов по параметру %s" % (n, sname))
         n += 1
         alphas = series.alphas()
         curves = []
@@ -158,23 +162,25 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
             x, y = series.curve("fkomp", i + 1)
             curves.append(("α=%.2f" % a, x, y))
         d.figure(_fig_png(lambda f, ax: plotting.draw_curves(
-            ax, curves, "%s, %s" % (meta["label"], meta["unit"]), "Fkomp")),
-            "Fkomp в зависимости от параметра %s" % series.name)
+            ax, curves, "%s %s%s" % (meta["label"], sname,
+                                    ", " + meta["unit"] if meta["unit"] else ""),
+            "φсг")),
+            "Коэффициент полноты сгорания φсг в зависимости от %s" % sname)
         rows = []
         for val, s, err in series.rows:
             rows.append([_fmt(val)] + ([("%.5f" % r["fkomp"]) if not r["diverged"]
                                         else "расх." for r in s] if s else
                                        [err] * max(1, len(alphas))))
-        d.table("Fkomp по серии %s" % series.name,
-                [series.name] + ["α=%.2f" % a for a in alphas] if alphas
-                else [series.name, "ошибка"], rows)
+        d.table("φсг по серии %s" % sname,
+                [sname] + ["α=%.2f" % a for a in alphas] if alphas
+                else [sname, "ошибка"], rows)
     if opt is not None:
-        d.h("%d. Подбор параметров на максимум Fkomp" % n)
+        d.h("%d. Подбор параметров на максимум φсг" % n)
         n += 1
-        d.p("α = %.2f. Начальное значение Fkomp = %.5f, после подбора %.5f "
+        d.p("α = %.2f. Начальное значение φсг = %.5f, после подбора %.5f "
             "(%d расчётов)." % (opt.alpha, opt.start_f, opt.best_f, len(opt.evals)))
         d.table("Результат подбора", ["Параметр", "Было", "Стало"],
-                [(nm, _fmt(a), _fmt(b)) for nm, a, b in
+                [(notation.sym(nm), _fmt(a), _fmt(b)) for nm, a, b in
                  zip(opt.names, opt.start_x, opt.best_x)])
     if gridcheck is not None:
         d.h("%d. Проверка сеточной сходимости" % n)

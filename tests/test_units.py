@@ -31,10 +31,24 @@ def test_params_roundtrip(tmp_path):
 
 def test_params_validation():
     with pytest.raises(ValueError):
-        Params(JZ=10).validate()
+        Params(JZ=10, GRID_AUTO=0).validate()
+    with pytest.raises(ValueError):
+        Params(JN=8).validate()
     with pytest.raises(ValueError):
         Params.from_dict({"NOPE": 1})
 
 
 def test_alfa_list():
-    assert [round(a, 6) for a in Params().alfa_list()] == [0.8, 1.0, 1.2, 1.4, 1.6]
+    assert Params().alfa_list() == [1.0]
+    assert Params.fortran().alfa_list() == [0.8, 1.0, 1.2, 1.4, 1.6]
+
+
+def test_auto_grid():
+    from metan.params import auto_grid
+    g = auto_grid(Params())
+    p = Params()
+    assert 1 < g["JZ"] < g["JZ1"] < g["JA"] < g["JA3"] < g["JA1"] < g["JA2"] < p.JN
+    assert 1 < g["IC2"] < g["IC1"] < g["IC"] < p.IN
+    # шире щель - больше узлов на неё
+    g2 = auto_grid(Params(DELOK=1.2))
+    assert g2["JA2"] - g2["JA1"] >= g["JA2"] - g["JA1"]

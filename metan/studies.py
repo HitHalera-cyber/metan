@@ -1,5 +1,5 @@
 """Параметрические исследования: серии по любому параметру, подбор
-геометрии под максимум Fkomp, проверка на более мелкой сетке."""
+геометрии под максимум φсг, проверка на более мелкой сетке."""
 
 import dataclasses
 import os
@@ -45,7 +45,7 @@ def with_value(params, name, value):
 def at_alpha(params, alpha):
     """Параметры для одного варианта с заданным α."""
     d = params.to_dict()
-    d.update(NVARM=1, ALFA=alpha - params.DALFA)
+    d.update(NVARM=1, ALFA=alpha)
     return Params.from_dict(d)
 
 
@@ -117,7 +117,7 @@ class OptResult:
 def optimize(params, names, bounds, alpha, max_evals=60, tol=0.02,
              progress=None, cancel=None):
     """Подбор параметров names в пределах bounds [(lo, hi), ...] на максимум
-    Fkomp при заданном α (поиск по образцу: шаги ± по каждой координате,
+    φсг при заданном α (поиск по образцу: шаги ± по каждой координате,
     уменьшение шага при отсутствии улучшения). Расходящиеся и недопустимые
     варианты считаются худшими."""
     base = at_alpha(params, alpha)
@@ -180,6 +180,7 @@ def refined_params(params, factor=2, iter_factor=3):
     """Параметры той же камеры на сетке, где каждый интервал разбит на
     factor частей. Номера узлов-границ пересчитываются так, чтобы границы
     остались на тех же радиусах и длинах."""
+    params = params.resolved()
     pv = Solver(params).preview()
     g = pv.grid
 
@@ -195,7 +196,7 @@ def refined_params(params, factor=2, iter_factor=3):
     d = params.to_dict()
     d.update(JZ=m(g["JZ"]), JZ1=m(g["JZ1"]), JA=m(g["JA"]), JA3=m(g["JA3"]),
              JA1=m(g["JA1"]), JA2=m(g["JA2"]), JN=JN, JC=JC, IC=IC, IC1=IC1,
-             IC2=IC2, IN=IN, NMAX=params.NMAX * iter_factor,
+             IC2=IC2, IN=IN, GRID_AUTO=0, NMAX=params.NMAX * iter_factor,
              NPRINT=params.NPRINT * iter_factor)
     return Params.from_dict(d)
 
@@ -212,11 +213,11 @@ class GridCheck:
         rows = []
         for a, b in zip(self.base.variants, self.fine.variants):
             ea, eb = exit_summary(a), exit_summary(b)
-            for name, x, y in (("Fkomp", a.fkomp, b.fkomp),
-                               ("T на выходе, K", ea["T"], eb["T"]),
-                               ("CH4 на выходе", ea["CH4"], eb["CH4"]),
-                               ("O2 на выходе", ea["O2"], eb["O2"]),
-                               ("CO2 на выходе", ea["CO2"], eb["CO2"])):
+            for name, x, y in (("φсг", a.fkomp, b.fkomp),
+                               ("Tвых, K", ea["T"], eb["T"]),
+                               ("gCH4 вых", ea["CH4"], eb["CH4"]),
+                               ("gO2 вых", ea["O2"], eb["O2"]),
+                               ("gCO2 вых", ea["CO2"], eb["CO2"])):
                 rel = ((y - x) / abs(x) * 100
                        if np.isfinite(x) and abs(x) > 1e-6 else np.nan)
                 rows.append((a.values["ALFA"], name, x, y, rel,
