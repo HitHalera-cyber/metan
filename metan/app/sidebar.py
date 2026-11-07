@@ -70,9 +70,19 @@ class Sidebar(ctk.CTkFrame):
                 if meta.get("hidden"):
                     self.hidden[name] = tk.StringVar()
                     continue
+                if name == "JZ":
+                    cap = tk.Label(body, text="Узлы-границы (номер узла, на "
+                                   "котором проходит граница)",
+                                   font=self.f_unit, anchor="w",
+                                   justify="left", wraplength=280)
+                    self._reg(cap, bg="panel", fg="muted", wrap=280)
+                    cap.grid(row=r, column=0, sticky="w", padx=6, pady=(8, 2))
+                    r += 1
                 r = self._row(body, r, name, meta)
                 if name == "ALFA":
                     r = self._multi_alpha(body, r)
+                if name == "JN":
+                    r = self._peclet_block(body, r)
             if key == "mode":
                 self.alfa_lbl = label(body, "", 11, wraplength=280,
                                       justify="left")
@@ -81,11 +91,15 @@ class Sidebar(ctk.CTkFrame):
                                    pady=(2, 0))
                 r += 1
             if key == "grid":
-                r = self._peclet_block(body, r)
                 self.grid_lbl = label(body, "", 11, wraplength=280,
                                       justify="left", muted=True)
                 self.grid_lbl.grid(row=r, column=0, sticky="w", padx=6,
-                                   pady=(2, 4))
+                                   pady=(6, 2))
+                r += 1
+                button(body, "Расставить границы пропорционально размерам",
+                       self.proportional_grid).grid(row=r, column=0,
+                                                    sticky="ew", padx=4,
+                                                    pady=(2, 6))
                 r += 1
             if key == "calc":
                 self.snap_var = tk.StringVar(value="20")
@@ -241,6 +255,11 @@ class Sidebar(ctk.CTkFrame):
              "достаточна;\n2 < Peh ≤ 5 - допустимо, но результат заметно "
              "зависит от сетки (проверьте вкладкой «Сетка ×2»);\nPeh > 5 - "
              "сетка груба, увеличьте Nx и Nr.\n\n"
+             "Важно: Peh - критерий ТОЧНОСТИ сетки, а не сходимости итераций. "
+             "Мелкая сетка (малое Peh) сходится медленнее: может понадобиться "
+             "больше итераций Nит. Сошёлся ли расчёт, показывают вкладка "
+             "«Сходимость» и число итераций N (больше заданного - "
+             "расходимость).\n\n"
              "До расчёта показывается оценка по 300 итерациям, после "
              "расчёта - значение по полученному полю.")
 
@@ -264,9 +283,9 @@ class Sidebar(ctk.CTkFrame):
         self._reg(self.pe_note, bg="panel", fg="muted", wrap=270)
         self.pe_note.grid(row=1, column=0, columnspan=3, sticky="w", padx=6)
         self.pe_lim = tk.Label(
-            fr, text="Пределы:  ≤ %g - хорошо;  %g…%g - допустимо;  "
-            "> %g - сгустите сетку" % (self.PE_GOOD, self.PE_GOOD, self.PE_OK,
-                                       self.PE_OK),
+            fr, text="Пределы точности:  ≤ %g - хорошо;  %g…%g - допустимо;  "
+            "> %g - сгустите сетку. Сходимость - вкладка «Сходимость»."
+            % (self.PE_GOOD, self.PE_GOOD, self.PE_OK, self.PE_OK),
             font=self.f_unit, anchor="w", justify="left", wraplength=270)
         self._reg(self.pe_lim, bg="panel", fg="muted", wrap=270)
         self.pe_lim.grid(row=2, column=0, columnspan=3, sticky="w", padx=6,
@@ -475,11 +494,28 @@ class Sidebar(ctk.CTkFrame):
             g = auto_grid(prm)
         except ValueError as e:
             return str(e)
-        return ("Границы по радиусу (номера узлов): струя %d, щель горючего "
-                "%d–%d, предкамера %d, щель окислителя %d–%d, горло %d. "
-                "По длине: уступ %d, начало сужения %d, горло %d."
-                % (g["JZ"], g["JZ1"], g["JA"], g["JA3"], g["JA1"], g["JA2"],
-                   g["JC"], g["IC2"], g["IC1"], g["IC"]))
+        return ("Считаются по размерам камеры (их не вводят): горло по радиусу "
+                "JC = %d (r ≥ dкр/2), горло по длине IC = Nx − 1 = %d, начало "
+                "сужения IC1 = IC − (Nr − JC) = %d."
+                % (g["JC"], g["IC"], g["IC1"]))
+
+    def proportional_grid(self):
+        """Заполнить узлы-границы пропорционально размерам камеры."""
+        import dataclasses
+        from ..params import proportional_grid
+        try:
+            prm = self.params()
+        except ValueError:
+            prm = None
+        try:
+            if prm is None:
+                raise ValueError("сначала исправьте исходные данные")
+            g = proportional_grid(dataclasses.replace(prm, GRID_AUTO=1))
+        except ValueError as e:
+            self._set_help("Не удалось расставить узлы", str(e))
+            return
+        for k in ("JZ", "JZ1", "JA", "JA3", "JA1", "JA2", "IC2"):
+            self.vars[k].set(str(g[k]))
 
     def update_preview(self):
         """Перерисовать мини-схему и проверить геометрию."""

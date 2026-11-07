@@ -52,3 +52,22 @@ def test_auto_grid():
     # шире щель - больше узлов на неё
     g2 = auto_grid(Params(DELOK=1.2))
     assert g2["JA2"] - g2["JA1"] >= g["JA2"] - g["JA1"]
+
+
+def test_derived_nodes_default_is_fortran_grid():
+    from metan.params import auto_grid
+    g = auto_grid(Params())
+    assert (g["JC"], g["IC"], g["IC1"]) == (6, 45, 29)
+    assert auto_grid(Params(DKR=10))["JC"] > g["JC"]
+    with pytest.raises(ValueError):
+        Params(JZ=7).validate()          # границы не по порядку
+
+
+def test_fine_grid_converges():
+    # раньше на сетке 80x40 появлялся интервал нулевой ширины у горла
+    import numpy as np
+    from metan import Solver
+    p = Params(IN=80, JN=40, GRID_AUTO=1, NMAX=300)
+    v = Solver(p).run().variants[0]
+    assert not v.diverged
+    assert np.diff(v.X2[1:41]).min() > 0

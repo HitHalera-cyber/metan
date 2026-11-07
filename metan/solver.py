@@ -180,11 +180,25 @@ class Solver:
             X2[J] = X2[J - 1] + (X2[JA2] - X2[JA1]) / (JA2 - JA1)
         for J in range(JA2 + 1, JN + 1):
             X2[J] = X2[J - 1] + (X2[JN] - X2[JA2]) / (JN - JA2)
+        exact = bool(self.p.GRID_EXACT) and self.NVAR == 1
+        if exact:
+            # Суммирование шагов даёт на границах 3.9999… вместо 4.0; тогда
+            # поиск ниже промахивается на узел, переносит его на Dkr/2 и
+            # рядом возникает интервал нулевой ширины (деление на ноль ->
+            # расходимость). В исходной программе так же, но на её сетке
+            # не проявлялось; для данных Фортрана (GRID_EXACT=0) не меняем.
+            for j, val in ((JZ, self.DCMB / 2.), (JZ1, self.DOGOR / 2.),
+                           (JA, self.DELGOR + self.DOGOR / 2.),
+                           (JA3, self.DKAR / 2.), (JA1, self.DOOK / 2.),
+                           (JA2, self.DELOK + self.DOOK / 2.),
+                           (JN, self.DKS / 2.)):
+                X2[j] = val
         # Поиск узла критического сечения: первый J, где X2(J) >= DKR/2
         J = JN + 1
+        tol = 1e-9 * self.DKR if exact else 0.
         for jj in range(2, JN + 1):
             XX2 = self.DKR / 2. - X2[jj]
-            if XX2 <= 0.:
+            if XX2 <= tol:
                 J = jj
                 break
         if J > JN:
