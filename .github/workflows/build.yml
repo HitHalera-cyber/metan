@@ -107,6 +107,11 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: windows-exe
     runs-on: ubuntu-latest
+    # публикации идут строго по очереди: две одновременные в один релиз
+    # мешают друг другу (файл установщика пропадает)
+    concurrency:
+      group: release
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
