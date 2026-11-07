@@ -551,6 +551,8 @@ class Table(ctk.CTkFrame):
             pass
         # отрицательный размер - пиксели: не зависит от DPI-настроек Tk
         fs = -max(12, int(round(15 * k)))
+        # без рамки поля (в теме clam она белая и выглядит как фокус)
+        st.layout(self.style_name, [("Treeview.treearea", {"sticky": "nswe"})])
         st.configure(self.style_name, background=p["card"],
                      fieldbackground=p["card"], foreground=p["fg"],
                      rowheight=int(round(28 * k)), font=(SANS, fs),

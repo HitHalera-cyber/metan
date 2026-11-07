@@ -225,7 +225,7 @@ class App(ctk.CTk):
 
     # ------------------------------------------------------------ справа
     def _rightpanel(self):
-        rp = ctk.CTkFrame(self, fg_color=c("panel"), corner_radius=0, width=290)
+        rp = ctk.CTkFrame(self, fg_color=c("panel"), corner_radius=0, width=265)
         rp.grid(row=2, column=2, sticky="nse")
         self.rp = rp
         show = self.cfg.get("right_panel")
@@ -247,7 +247,7 @@ class App(ctk.CTk):
             Tooltip(lab, lambda k=key: RIGHT_HELP.get(k, ""), self)
             lv = label(self.kv_fr, "—", 12, mono=True, anchor="e")
             lv.grid(row=n, column=1, sticky="e", pady=1)
-            label(self.kv_fr, unit, 11, muted=True, anchor="w", width=44).grid(
+            label(self.kv_fr, unit, 11, muted=True, anchor="w", width=40).grid(
                 row=n, column=2, sticky="w", padx=(6, 0), pady=1)
             self.kv[key] = lv
         self.mini_caps = label(rp, "φк(α)", 12, bold=True, muted=True,
@@ -474,6 +474,9 @@ class App(ctk.CTk):
             self.results = res
             self.variant_idx = 0
             self.add_run(res)
+            self.sidebar._pe_gen += 1          # оценка устарела
+            self.sidebar.show_peclet(analysis.cell_peclet(res.variants[0]),
+                                     "по результатам расчёта")
             self._build_chips()
             self._update_right()
             self.files_lbl.configure(text="Записано: " + ", ".join(

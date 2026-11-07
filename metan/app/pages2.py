@@ -168,7 +168,8 @@ class SeriesPage(Page):
         s = self.app.series
         if s is None:
             self.plot.message("Выберите параметр и диапазон, нажмите «Запустить серию».\n"
-                              "При каждом значении считаются все варианты α.")
+                              "Если отмечено «Несколько значений α», при каждом значении\n"
+                              "считаются все α - на графике будет семейство кривых.")
             return
         key = METRICS[self.metric.get()]
         alphas = s.alphas()
@@ -212,12 +213,25 @@ class OptimizePage(Page):
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        # верхняя строка: α, лимит, кнопки (переносится на узком экране)
+        tb = self.toolbar(0)
+        label(tb, "α", 12, muted=True).pack(side="left")
+        self.alpha = tk.StringVar(
+            value=app.sidebar.vars["ALFA"].get() or "1.0")
+        entry(tb, self.alpha, 70).pack(side="left", padx=(4, 14))
+        label(tb, "макс. расчётов", 12, muted=True).pack(side="left")
+        self.maxev = tk.StringVar(value="60")
+        entry(tb, self.maxev, 60).pack(side="left", padx=(4, 14))
+        button(tb, "Границы ±30%", self._defaults, width=120).pack(side="left")
+        button(tb, "Подобрать", self.run, primary=True, width=130).pack(
+            side="right")
+
         top = ctk.CTkFrame(self, fg_color="transparent")
-        top.grid(row=0, column=0, sticky="ew")
-        top.grid_columnconfigure(1, weight=1)
+        top.grid(row=1, column=0, sticky="ew")
+        self._top = top
         left = ctk.CTkFrame(top, fg_color=c("card"), corner_radius=12,
                             border_width=1, border_color=c("line"))
-        left.grid(row=0, column=0, sticky="nw")
+        self._left = left
         caps(left, "Что подбирать (мин / макс, мм)").grid(row=0, column=0,
                                                       columnspan=3, sticky="w",
                                                       padx=10, pady=(8, 4))
@@ -231,37 +245,46 @@ class OptimizePage(Page):
             entry(left, self.lo[n], 70).grid(row=r, column=1, padx=2)
             entry(left, self.hi[n], 70).grid(row=r, column=2, padx=(2, 10))
         right = ctk.CTkFrame(top, fg_color="transparent")
-        right.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+        self._right = right
         right.grid_columnconfigure(0, weight=1)
-        row = Flow(right)
-        row.grid(row=0, column=0, sticky="ew")
-        label(row, "α", 12, muted=True).pack(side="left")
-        self.alpha = tk.StringVar(
-            value=app.sidebar.vars["ALFA"].get() or "1.0")
-        entry(row, self.alpha, 70).pack(side="left", padx=(4, 12))
-        label(row, "макс. расчётов", 12, muted=True).pack(side="left")
-        self.maxev = tk.StringVar(value="60")
-        entry(row, self.maxev, 60).pack(side="left", padx=4)
-        button(row, "Границы ±30%", self._defaults, width=120).pack(side="left",
-                                                                   padx=8)
-        button(row, "Подобрать", self.run, primary=True, width=130).pack(side="right")
-        self.result = label(right, "", 12, anchor="w", justify="left",
-                            wraplength=560)
-        self.result.grid(row=1, column=0, sticky="ew", pady=8)
-        self.table = Table(right, app, ["Параметр", "Было", "Стало"], height=5)
-        self.table.grid(row=2, column=0, sticky="ew")
+        self.result = label(right, "Отметьте параметры, задайте границы и "
+                            "нажмите «Подобрать». Цель - наибольший φк.", 12,
+                            anchor="w", justify="left", wraplength=300)
+        self.result.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.table = Table(right, app, ["Параметр", "Было", "Стало"], height=3)
+        self.table.grid(row=1, column=0, sticky="nsew")
+        right.grid_rowconfigure(1, weight=1)
         self.apply_btn = button(right, "Применить найденные значения",
                                 self.apply, width=240)
-        self.apply_btn.grid(row=3, column=0, sticky="w", pady=8)
-        label(right, "Подбор максимизирует φк при заданном α (формулы "
-              "верны при любом α). При большом избытке окислителя (α ≳ 1.3) "
-              "горючее выгорает полностью и φк = 1 почти везде - тогда "
-              "подбор мало что меняет.", 11, muted=True, wraplength=560,
-              justify="left", anchor="w").grid(row=4, column=0, sticky="ew")
+        self.apply_btn.grid(row=2, column=0, sticky="w", pady=(8, 0))
+        self._side = None
+        top.bind("<Configure>", self._arrange, add="+")
+        right.bind("<Configure>", lambda e: self.result.configure(
+            wraplength=max(200, e.width - 10)), add="+")
+        self._arrange()
         self.plot = Plot(self, app, figsize=(8, 3))
-        self.plot.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        self.grid_rowconfigure(1, weight=1)
+        self.plot.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
+        self.grid_rowconfigure(2, weight=1)
         self.after(200, self._defaults)
+
+    def _arrange(self, _e=None):
+        """Таблица справа от списка параметров, а на узком экране - под ним."""
+        w = self._top.winfo_width()
+        side = w <= 1 or w >= self._left.winfo_reqwidth() + 340
+        if side == self._side:
+            return
+        self._side = side
+        self._left.grid_forget()
+        self._right.grid_forget()
+        self._top.grid_columnconfigure(0, weight=0)
+        self._top.grid_columnconfigure(1, weight=1 if side else 0)
+        self._left.grid(row=0, column=0, sticky="nw")
+        self._right.grid_rowconfigure(1, weight=1 if side else 0)
+        if side:
+            self._right.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+        else:
+            self._top.grid_columnconfigure(0, weight=1)
+            self._right.grid(row=1, column=0, sticky="ew", pady=(8, 0))
 
     def _defaults(self):
         for n in studies.OPT_PARAMS:

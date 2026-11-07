@@ -26,7 +26,7 @@ HELP_HINT = ("Щёлкните правой кнопкой мыши по пар�
 
 class Sidebar(ctk.CTkFrame):
     def __init__(self, master, app):
-        super().__init__(master, fg_color=c("panel"), corner_radius=0, width=380)
+        super().__init__(master, fg_color=c("panel"), corner_radius=0, width=355)
         self.app = app
         self.vars = {}           # видимые параметры
         self.hidden = {}         # скрытые (значения по умолчанию / из файла)
@@ -74,14 +74,15 @@ class Sidebar(ctk.CTkFrame):
                 if name == "ALFA":
                     r = self._multi_alpha(body, r)
             if key == "mode":
-                self.alfa_lbl = label(body, "", 11, wraplength=300,
+                self.alfa_lbl = label(body, "", 11, wraplength=280,
                                       justify="left")
                 self.alfa_lbl.configure(text_color=c("accent"))
                 self.alfa_lbl.grid(row=r, column=0, sticky="w", padx=6,
                                    pady=(2, 0))
                 r += 1
             if key == "grid":
-                self.grid_lbl = label(body, "", 11, wraplength=300,
+                r = self._peclet_block(body, r)
+                self.grid_lbl = label(body, "", 11, wraplength=280,
                                       justify="left", muted=True)
                 self.grid_lbl.grid(row=r, column=0, sticky="w", padx=6,
                                    pady=(2, 4))
@@ -169,7 +170,7 @@ class Sidebar(ctk.CTkFrame):
         t = tk.Label(fr, text=title.upper(), font=self.f_head, anchor="w")
         self._reg(t, bg="card", fg="fg")
         s = tk.Label(fr, text=sub, font=self.f_sub, anchor="w", justify="left")
-        self._reg(s, bg="card", fg="muted", wrap=255)
+        self._reg(s, bg="card", fg="muted", wrap=235)
         arrow.grid(row=0, column=0, rowspan=2, sticky="n", padx=(8, 0), pady=8)
         t.grid(row=0, column=1, sticky="w", pady=(8, 0))
         s.grid(row=1, column=1, sticky="w", pady=(0, 8), padx=(0, 10))
@@ -186,8 +187,8 @@ class Sidebar(ctk.CTkFrame):
         fr.grid_columnconfigure(0, weight=1)
         text = meta["label"] + ("  " + meta["sym"] if meta.get("sym") else "")
         lab = tk.Label(fr, text=text, font=self.f_lab, anchor="w",
-                       justify="left", wraplength=170)
-        self._reg(lab, bg="panel", fg="fg", wrap=170)
+                       justify="left", wraplength=150)
+        self._reg(lab, bg="panel", fg="fg", wrap=150)
         lab.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=3)
         v = var or tk.StringVar()
         kind = meta.get("kind")
@@ -197,7 +198,7 @@ class Sidebar(ctk.CTkFrame):
                        variable=v, width=150 if names else 96)
             w.grid(row=0, column=1, sticky="e", pady=3)
         else:
-            w = ctk.CTkEntry(fr, textvariable=v, width=96, height=30,
+            w = ctk.CTkEntry(fr, textvariable=v, width=90, height=30,
                              fg_color=c("card"), border_color=c("line"),
                              text_color=c("fg"), font=font(12, mono=True),
                              corner_radius=8, border_width=1)
@@ -221,6 +222,109 @@ class Sidebar(ctk.CTkFrame):
         self.rows[name] = fr
         self.meta[name] = meta
         return r + 1
+
+    # ------------------------------------------------------------ Peh
+    PE_GOOD, PE_OK = 2.0, 5.0
+    PE_HELP = dict(
+        label="Сеточное число Пекле", sym="Peh", unit="",
+        short="Считается автоматически по сетке, его нельзя ввести",
+        help="Peh = ρ·(|u|·Δx + |v|·Δr) / μт - отношение переноса газа "
+             "течением к турбулентной диффузии на размере одной ячейки "
+             "сетки (медиана по всем ячейкам камеры).\n\n"
+             "Классическое число Куранта Co = w·Δt/Δx здесь не определено: "
+             "программа решает стационарные уравнения итерациями "
+             "Гаусса-Зейделя (метод установления), шага по времени Δt в ней "
+             "нет. Роль «сеточного» критерия играет Peh: конвекция "
+             "аппроксимируется разностями против потока, которые вносят "
+             "схемную вязкость ρ·w·h/2, т. е. Peh/2 от турбулентной.\n\n"
+             "Peh ≤ 2 - схемная вязкость не больше турбулентной, сетка "
+             "достаточна;\n2 < Peh ≤ 5 - допустимо, но результат заметно "
+             "зависит от сетки (проверьте вкладкой «Сетка ×2»);\nPeh > 5 - "
+             "сетка груба, увеличьте Nx и Nr.\n\n"
+             "До расчёта показывается оценка по 300 итерациям, после "
+             "расчёта - значение по полученному полю.")
+
+    def _peclet_block(self, parent, r):
+        fr = tk.Frame(parent, bd=0, highlightthickness=0)
+        self._reg(fr, bg="panel")
+        fr.grid(row=r, column=0, sticky="ew", pady=(4, 0))
+        fr.grid_columnconfigure(0, weight=1)
+        lab = tk.Label(fr, text="Число Пекле сетки  Peh", font=self.f_lab, anchor="w",
+                       justify="left", wraplength=150)
+        self._reg(lab, bg="panel", fg="fg", wrap=150)
+        lab.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=3)
+        self.pe_val = ctk.CTkLabel(fr, text="…", width=90, height=30,
+                                   corner_radius=8, fg_color=c("card"),
+                                   font=font(13, "bold", mono=True))
+        self.pe_val.grid(row=0, column=1, sticky="e", pady=3)
+        tk.Label(fr, width=6).grid(row=0, column=2)      # как столбец единиц
+        self._reg(fr.grid_slaves(row=0, column=2)[0], bg="panel")
+        self.pe_note = tk.Label(fr, text="", font=self.f_unit, anchor="w",
+                                justify="left", wraplength=270)
+        self._reg(self.pe_note, bg="panel", fg="muted", wrap=270)
+        self.pe_note.grid(row=1, column=0, columnspan=3, sticky="w", padx=6)
+        self.pe_lim = tk.Label(
+            fr, text="Пределы:  ≤ %g - хорошо;  %g…%g - допустимо;  "
+            "> %g - сгустите сетку" % (self.PE_GOOD, self.PE_GOOD, self.PE_OK,
+                                       self.PE_OK),
+            font=self.f_unit, anchor="w", justify="left", wraplength=270)
+        self._reg(self.pe_lim, bg="panel", fg="muted", wrap=270)
+        self.pe_lim.grid(row=2, column=0, columnspan=3, sticky="w", padx=6,
+                         pady=(0, 4))
+        for w in (fr, lab, self.pe_val, self.pe_note, self.pe_lim):
+            w.bind("<Button-3>", lambda e: self.show_help("_peh"), add="+")
+            w.bind("<Button-2>", lambda e: self.show_help("_peh"), add="+")
+        self.rows["_peh"] = fr
+        self.meta["_peh"] = self.PE_HELP
+        self._pe_gen = 0
+        return r + 1
+
+    def show_peclet(self, pe, source):
+        """Показать Peh (dict из analysis.cell_peclet) и его оценку."""
+        if not pe:
+            self.pe_val.configure(text="—", text_color=c("muted"))
+            self.pe_note.configure(text=source)
+            return
+        x = pe["median"]
+        col = ("accent" if x <= self.PE_GOOD else
+               "warn" if x <= self.PE_OK else "danger")
+        self.pe_val.configure(text="%.2f" % x, text_color=c(col))
+        self.pe_note.configure(text="Аналог числа Куранта (правый щелчок - "
+                               "подробнее). %s; у струй до %.0f."
+                               % (source[0].upper() + source[1:], pe["p95"]))
+
+    def _estimate_peclet(self, prm):
+        """Оценка Peh в фоне (300 итераций, ~0.1 с) при каждом изменении."""
+        import dataclasses
+        import threading
+        self._pe_gen += 1
+        gen = self._pe_gen
+        self.pe_val.configure(text="…", text_color=c("muted"))
+
+        def work():
+            from .. import analysis
+            from ..solver import Solver
+            try:
+                q = dataclasses.replace(prm, NVARM=1, NMAX=300,
+                                        NPRINT=min(prm.NPRINT, 200))
+                v = Solver(q, track_history=False).run().variants[0]
+                pe = analysis.cell_peclet(v)
+            except Exception:
+                pe = None
+            box.append(pe)
+
+        # Tk нельзя трогать из фонового потока: результат забирает таймер
+        box = []
+
+        def check():
+            if gen != self._pe_gen:
+                return
+            if box:
+                self.show_peclet(box[0], "оценка до расчёта")
+            else:
+                self.after(60, check)
+        threading.Thread(target=work, daemon=True).start()
+        self.after(60, check)
 
     def _multi_alpha(self, parent, r):
         self.multi_var = tk.BooleanVar(value=False)
@@ -247,7 +351,7 @@ class Sidebar(ctk.CTkFrame):
         self.mini_canvas = Canvas(self.mini_fig, master=box)
         self.mini_canvas.get_tk_widget().configure(highlightthickness=0)
         self.mini_canvas.get_tk_widget().pack(fill="x", padx=6, pady=6)
-        self.warn_lbl = label(box, "", 11, wraplength=300, justify="left",
+        self.warn_lbl = label(box, "", 11, wraplength=280, justify="left",
                               anchor="w")
         self.warn_lbl.configure(text_color=c("danger"))
         self.warn_lbl.pack(fill="x", padx=8, pady=(0, 6))
@@ -390,6 +494,7 @@ class Sidebar(ctk.CTkFrame):
             prm = self.params()
             msgs = geometry_warnings(prm)
             self.grid_lbl.configure(text=self._grid_text(prm))
+            self._estimate_peclet(prm)
             pv = Solver(prm).preview()
             plotting.draw_geometry(ax, pv, grid=False, dims=False,
                                    fg=p_["fg"], accent=p_["accent"])

@@ -106,3 +106,34 @@ def difference(a, b, k, n=(240, 80)):
     xg = np.linspace(0, xmax, n[0])
     rg = np.linspace(0, rmax, n[1])
     return xg, rg, to_regular(b, k, xg, rg) - to_regular(a, k, xg, rg)
+
+
+def cell_peclet(v):
+    """Сеточное число Пекле Peh = ρ(|u|·Δx + |v|·Δr)/μт в узлах камеры.
+
+    Отношение переноса течением к турбулентной диффузии на размере ячейки.
+    Схема «против потока» (CONVEC) вносит схемную вязкость ρ|w|h/2, т. е.
+    Peh/2 от турбулентной: при Peh ≤ 2 она не больше физической.
+    Возвращает dict(median, p95, max, share2 - доля узлов с Peh > 2).
+    """
+    from .kernels import NMU, NRO3, NV1, NV2
+    A, g = v.A, v.grid
+    IN, JN = g["IN"], g["JN"]
+    X1, X2 = v.X1, v.X2
+    vals = []
+    for J in range(2, JN):
+        IL, IM = int(v.IMIN[J]), int(v.IMAX[J])
+        for I in range(max(IL, 2), min(IM, IN - 1) + 1):
+            mu, rho = A[I, J, NMU], A[I, J, NRO3]
+            if mu <= 0 or rho <= 0:
+                continue
+            dx = 0.5 * (X1[I + 1] - X1[I - 1])
+            dr = 0.5 * (X2[J + 1] - X2[J - 1])
+            vals.append(rho * (abs(A[I, J, NV1]) * dx
+                               + abs(A[I, J, NV2]) * dr) / mu)
+    if not vals:
+        return None
+    a = np.asarray(vals)
+    a = a[np.isfinite(a)]
+    return dict(median=float(np.median(a)), p95=float(np.percentile(a, 95)),
+                max=float(a.max()), share2=float((a > 2).mean()))

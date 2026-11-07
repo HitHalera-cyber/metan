@@ -66,3 +66,10 @@ def test_analysis():
     w = r.variants[1]
     x, rr, D = analysis.difference(v, w, NT)
     assert D.shape == (len(rr), len(x))
+
+
+def test_cell_peclet():
+    r = Solver(small(NVARM=1)).run()
+    pe = analysis.cell_peclet(r.variants[0])
+    assert pe and 0 < pe["median"] <= pe["p95"] <= pe["max"]
+    assert 0 <= pe["share2"] <= 1
