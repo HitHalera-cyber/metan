@@ -326,6 +326,11 @@ def gci3(f3, f2, f1, r):
     scale = max(abs(f1), 1e-12)
     if abs(e21) < 1e-6 * scale:
         out.update(kind="converged", gci=0.0, ext=f1)
+    elif max(abs(e21), abs(e32)) < 0.01 * scale and (
+            e32 * e21 < 0 or abs(e32) <= abs(e21)):
+        # разности меньше 1 % и не убывают закономерно - это уже шум
+        # итераций, а не влияние сетки
+        out.update(kind="noise", gci=1.25 * max(abs(e21), abs(e32)) / scale * 100)
     elif e32 * e21 < 0:
         out.update(kind="oscillating", gci=1.25 * abs(e21) / scale * 100)
     elif abs(e32) <= abs(e21):
@@ -373,6 +378,6 @@ def grid_study(params, options, start=(100, 44), ratio=2 ** 0.5, levels=5,
             g["metric"] = "φβ" if key == "fb" else "φк"
             g["grids"] = tuple("%d×%d" % (r["IN"], r["JN"]) for r in rows[-3:])
             gcis.append(g)
-            if g["kind"] in ("monotone", "converged") and g["gci"] < target:
+            if g["kind"] in ("monotone", "converged", "noise") and g["gci"] < target:
                 break
     return rows, gcis

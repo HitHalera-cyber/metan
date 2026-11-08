@@ -226,7 +226,8 @@ class AdvancedPage(Page):
                 g = gcis[-1]
                 kinds = {"monotone": "сходится", "oscillating": "колеблется",
                          "diverging": "разности не убывают",
-                         "converged": "не зависит от сетки"}
+                         "converged": "не зависит от сетки",
+                         "noise": "разности меньше 1 % - на уровне шума"}
                 m = g.get("metric", "φк")
                 txt += ("Последние три сетки %s: GCI(%s) = %.2f %% (%s)"
                         % (" → ".join(g["grids"]), m, g["gci"],
@@ -234,7 +235,7 @@ class AdvancedPage(Page):
                 if g["ext"] == g["ext"]:
                     txt += ", %s на бесконечно мелкой сетке ≈ %.4f" % (m, g["ext"])
                 txt += "." + (" Сетки достаточно." if g["gci"] < 2 and
-                              g["kind"] in ("monotone", "converged") else
+                              g["kind"] in ("monotone", "converged", "noise") else
                               " GCI ≥ 2 % - нужна более подробная сетка.")
             else:
                 txt += "Для GCI нужны три сетки."

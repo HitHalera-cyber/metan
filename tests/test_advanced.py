@@ -49,3 +49,8 @@ def test_gci3():
     assert abs(g["p"] - 2) < 1e-6
     assert abs(g["ext"] - 1) < 1e-9
     assert g["kind"] == "monotone"
+
+
+def test_gci3_noise():
+    g = M.gci3(0.7858, 0.7873, 0.7894, 2 ** 0.5)
+    assert g["kind"] == "noise" and g["gci"] < 2
