@@ -47,6 +47,14 @@ RIGHT_HELP = {
     "gCO2 вых": "Среднемассовая доля CO2 на выходе.",
 }
 
+def _fmt_time(sec):
+    if sec < 90:
+        return "%.0f с" % sec
+    if sec < 5400:
+        return "%.0f мин" % (sec / 60)
+    return "%.1f ч" % (sec / 3600)
+
+
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
          SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
 
@@ -119,6 +127,12 @@ class App(ctk.CTk):
         self.stop_btn = button(tb, "Стоп", self.stop, width=70)
         self.stop_btn.grid(row=0, column=5, padx=6)
         self.stop_btn.grid_remove()          # видна только во время расчёта
+        self.cont_btn = button(tb, "Продолжить", self.continue_run, width=110)
+        self.cont_btn.grid(row=0, column=5, padx=6)
+        self.cont_btn.grid_remove()          # если расчёт можно досчитать
+        Tooltip(self.cont_btn, lambda: "Досчитать ещё Nит итераций с полей, "
+                "на которых расчёт остановился (без повторного счёта с нуля).",
+                self)
         button(tb, "Отчёт Word", self.report, width=110).grid(row=0, column=6,
                                                               padx=6)
         self.menu_btn = button(tb, "☰", self._show_menu, width=40)
@@ -414,6 +428,7 @@ class App(ctk.CTk):
         self.busy = True
         self.cancel_ev.clear()
         self.run_btn.configure(state="disabled")
+        self.cont_btn.grid_remove()
         self.stop_btn.grid()
         self.pbar.set(0)
         self.prog_lbl.configure(text=title + "… (первый запуск - компиляция)")
@@ -462,11 +477,40 @@ class App(ctk.CTk):
     def stop(self):
         self.cancel_ev.set()
 
-    def run(self):
+    def _resumable(self):
+        """Вариант, который можно досчитать кнопкой «Продолжить»."""
+        r = self.results
+        if r is None or len(r.variants) != 1:
+            return None
+        v = r.variants[0]
+        if v.diverged or v.settled is not False:
+            return None
+        return v
+
+    def _update_continue(self):
+        if self._resumable() is not None and not self.busy:
+            self.cont_btn.grid()
+        else:
+            self.cont_btn.grid_remove()
+
+    def continue_run(self):
+        """Продолжить расчёт с полей, на которых он остановился."""
+        v = self._resumable()
+        if v is not None:
+            self.run(resume=v)
+
+    def run(self, resume=None):
         try:
             prm = self.sidebar.params()
         except ValueError as e:
             messagebox.showerror("Ошибка в параметрах", str(e))
+            return
+        if resume is not None and (resume.grid.get("IN") != prm.IN or
+                                   resume.grid.get("JN") != prm.JN):
+            messagebox.showinfo("Продолжить", "Сетка изменилась - продолжить "
+                                "прежний расчёт нельзя, будет новый расчёт.")
+            resume = None
+        if resume is None and not self._confirm_long(prm):
             return
         snap = self.sidebar.snapshot_every()
         outdir = self.outdir.get()
@@ -476,7 +520,8 @@ class App(ctk.CTk):
                 progress(((nvar - 1) + niter / nmax) / nvarm,
                          "вариант %d/%d · итерация %d/%d" % (nvar, nvarm, niter, nmax))
             res = Solver(prm, progress=prog, cancel=cancel,
-                         snapshot_every=snap).run()
+                         snapshot_every=snap, keep_partial=True,
+                         resume=resume).run()
             files = res.write_files(outdir)
             return res, files
 
@@ -492,14 +537,39 @@ class App(ctk.CTk):
             bad = sum(v.diverged for v in res.variants)
             unsettled = sum(v.settled is False for v in res.variants)
             its = ", ".join(str(v.NITER) for v in res.variants)
-            self.status("Расчёт за %.1f с, итераций: %s.%s%s" % (
-                res.elapsed, its,
-                " Расходимость в %d вариантах!" % bad if bad else "",
-                " Не установилось вариантов: %d (колебания) - φк может быть "
-                "неточным." % unsettled if unsettled else ""))
+            if res.stopped:
+                self.status("Остановлено на итерации %d. Результат - "
+                            "промежуточный; «Продолжить» досчитает с этого "
+                            "места." % res.variants[-1].NITER)
+            else:
+                self.status("Расчёт за %.1f с, итераций: %s.%s%s" % (
+                    res.elapsed, its,
+                    " Расходимость в %d вариантах!" % bad if bad else "",
+                    " Не установилось вариантов: %d - «Продолжить» досчитает "
+                    "ещё Nит итераций." % unsettled if unsettled else ""))
             self.page.refresh()
+            self.after(150, self._update_continue)
 
         self.run_task(job, done, "Расчёт")
+
+    def _confirm_long(self, prm):
+        """Предупредить, если расчёт займёт заметное время."""
+        est = getattr(self.sidebar, "_est", None)
+        cost = getattr(self.sidebar, "_node_cost", None)
+        if not est or not cost:
+            return True
+        n = min(est["n_req"], prm.NMAX) * prm.NVARM
+        sec = n * prm.IN * prm.JN * cost
+        if sec < 120:
+            return True
+        return messagebox.askyesno(
+            "Долгий расчёт",
+            "По оценке расчёт займёт около %s (сетка %d×%d, до %d итераций%s).\n"
+            "Его можно остановить кнопкой «Стоп» и потом продолжить.\n\n"
+            "Запустить?" % (_fmt_time(sec), prm.IN, prm.JN,
+                            min(int(est["n_req"]), prm.NMAX),
+                            " × %d вариантов" % prm.NVARM if prm.NVARM > 1
+                            else ""))
 
     def report(self):
         if self.results is None:

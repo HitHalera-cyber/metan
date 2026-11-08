@@ -184,13 +184,28 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
                  zip(opt.names, opt.start_x, opt.best_x)])
     if gridcheck is not None:
         d.h("%d. Проверка сеточной сходимости" % n)
-        gb, gf = gridcheck.base_params, gridcheck.fine_params
-        d.p("Базовая сетка %d×%d узлов, мелкая %d×%d (каждый интервал разбит "
-            "пополам, итераций %d)." % (gb.IN, gb.JN, gf.IN, gf.JN, gf.NMAX))
-        d.table("Сравнение результатов на двух сетках",
-                ["α", "Величина", "Базовая", "Мелкая", "Отличие, %"],
-                [("%.2f" % a, nm, _fmt(x), _fmt(y),
-                  "—" if rel != rel else "%.2f" % rel + (" (расх.)" if bad else ""))
-                 for a, nm, x, y, rel, bad in gridcheck.table()])
+        ps = [gridcheck.base_params, gridcheck.fine_params] + \
+            ([gridcheck.finer_params] if gridcheck.finer is not None else [])
+        names = ["%d×%d" % (q.IN, q.JN) for q in ps]
+        d.p("Сетки: %s (каждый интервал разбит на %d части)."
+            % (" → ".join(names), gridcheck.factor))
+        rows_g = gridcheck.gci()
+        if rows_g:
+            kinds = {"monotone": "сходится", "oscillating": "колеблется",
+                     "diverging": "сетки грубые", "converged": "не зависит"}
+            d.table("Индекс сеточной сходимости GCI",
+                    ["α", "Величина"] + names + ["p", "Предел", "GCI, %",
+                                                 "Вывод"],
+                    [("%.2f" % r["alpha"], r["name"], _fmt(r["f3"]),
+                      _fmt(r["f2"]), _fmt(r["f1"]),
+                      "—" if r["p"] != r["p"] else "%.2f" % r["p"],
+                      "—" if r["ext"] != r["ext"] else _fmt(r["ext"]),
+                      "%.2f" % r["gci"], kinds[r["kind"]]) for r in rows_g])
+        else:
+            d.table("Сравнение результатов на двух сетках",
+                    ["α", "Величина"] + names + ["Отличие, %"],
+                    [("%.2f" % a, nm, _fmt(x), _fmt(y),
+                      "—" if rel != rel else "%.2f" % rel + (" (расх.)" if bad else ""))
+                     for a, nm, x, y, rel, bad in gridcheck.table()])
     d.doc.save(path)
     return path

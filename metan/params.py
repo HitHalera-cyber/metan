@@ -120,6 +120,7 @@ class Params:
                    "решение установилось")
     STOP_TOL: float = _p(1e-5, "Порог установления", "", "", "calc",
                          hidden=True)
+    OMEGA: float = _p(1.0, "Верхняя релаксация ψ", "ω", "", "calc", hidden=True)
     NPRINT: int = _p(20, "Разгонных итераций", "Nразг", "", "calc",
                      "Первые итерации - без уравнения вихря", hidden=True)
     NCORD: int = _p(2, "Постановка задачи", "", "", "calc",
@@ -136,7 +137,7 @@ class Params:
     def fortran(cls, **kw):
         """Данные точно как в исходной программе met21 (5 вариантов α от
         0.8 с шагом 0.2, узлы сетки из BLOCK DATA, формулы RK2.FOR)."""
-        d = dict(ALFA=0.8, NVARM=5, NMAX=1000, NPRINT=200, STOP_TOL=0.,
+        d = dict(ALFA=0.8, NVARM=5, NMAX=1000, NPRINT=200, STOP_TOL=0., OMEGA=1.0,
                  GRID_AUTO=0, GRID_EXACT=0, model="original")
         d.update(kw)
         return cls(**d)

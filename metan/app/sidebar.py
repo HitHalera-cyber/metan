@@ -230,9 +230,9 @@ class Sidebar(ctk.CTkFrame):
              "передаётся только в соседние узлы. Чем подробнее сетка, тем "
              "больше узлов от одного края камеры до другого и тем больше "
              "шагов нужно, чтобы поправка «дошла» везде. Число итераций "
-             "растёт примерно как квадрат числа узлов: 46×22 - около 1300, "
-             "100×44 - около 4000, 200×88 - около 16 000, 1000×220 - больше "
-             "200 000.\n\n"
+             "растёт быстрее числа узлов: 46×22 - около 1200, 100×44 - около "
+             "3000, 200×88 - около 8000, 300×66 - около 12 000 (по "
+             "расчётам).\n\n"
              "Как это используется: программа сама останавливается, как "
              "только решение установилось, а Nит - только предел. Если Nит "
              "меньше Nуст, расчёт, скорее всего, упрётся в предел, не "
@@ -240,9 +240,12 @@ class Sidebar(ctk.CTkFrame):
              "Как считается: при каждой итерации ψ уточняется одним проходом "
              "метода Гаусса-Зейделя; ошибка за итерацию уменьшается в 1/ρ "
              "раз, где ρ - спектральный радиус итерационной матрицы (зависит "
-             "только от сетки и находится до расчёта). Nуст = "
-             "4·ln(10³)/(−ln ρ); множитель 4 подобран по расчётам - вместе с "
-             "ψ устанавливаются вихрь, температура и состав.\n\n"
+             "только от сетки и находится до расчёта). Из него n₀ = "
+             "ln(10⁻³)/ln ρ - сколько итераций нужно одному уравнению ψ. Вся "
+             "система (вихрь, температура, состав) устанавливается иначе, "
+             "поэтому Nуст = 1.15·23.9·n₀^0.703 - зависимость подобрана по "
+             "расчётам на 8 сетках от 46×22 до 300×66 (точность ±11 %, "
+             "1.15 - запас).\n\n"
              "Запас K = Nит / Nуст: ≥ 1 - успеет установиться; 0.5…1 - может "
              "не успеть; < 0.5 - не успеет, увеличьте Nит или уменьшите "
              "сетку.")
@@ -282,6 +285,7 @@ class Sidebar(ctk.CTkFrame):
         self.rows["_nreq"] = fr
         self.meta["_nreq"] = self.IT_HELP
         self._est = None
+        self._node_cost = None
         return r + 1
 
     def show_iters(self, est=None):
@@ -303,8 +307,26 @@ class Sidebar(ctk.CTkFrame):
                               text_color=c(col))
         verdict = ("успеет установиться" if k >= 1 else
                    "может не успеть" if k >= 0.5 else "не успеет")
-        self.it_note.configure(text="Предел Nит = %d → запас K = %.2f: %s."
-                               % (nmax, k, verdict))
+        txt = "Предел Nит = %d → запас K = %.2f: %s." % (nmax, k, verdict)
+        try:
+            nx = int(float(self.vars["IN"].get()))
+            nr = int(float(self.vars["JN"].get()))
+            nv = int(float(self.vars["NVARM"].get())) if \
+                self.multi_var.get() else 1
+        except (ValueError, KeyError):
+            nx = nr = 0
+            nv = 1
+        if nx and nr:
+            fields = (nx + 1) * (nr + 1) * 17 * 8
+            mem = 3 * fields + min(400e6, 120 * fields / 2 * nv)
+            txt += " Память ≈ %.0f МБ." % (mem / 1e6)
+            if self._node_cost:
+                from .main import _fmt_time
+                sec = min(n, nmax) * nx * nr * nv * self._node_cost
+                txt += " Время ≈ %s%s." % (_fmt_time(sec),
+                                           " на %d вариантов" % nv
+                                           if nv > 1 else "")
+        self.it_note.configure(text=txt)
 
     def _estimate_iters(self, prm):
         """Оценка Nуст в фоне (спектральный радиус, доли секунды)."""
@@ -314,11 +336,22 @@ class Sidebar(ctk.CTkFrame):
         self.it_val.configure(text="…", text_color=c("muted"))
 
         def work():
+            import time as _t
             from .. import convergence
+            from ..params import Params as _P
+            from ..solver import Solver as _S
             try:
                 est = convergence.estimate(prm)
             except Exception:
                 est = None
+            if self._node_cost is None:
+                # скорость этого компьютера: секунд на узел·итерацию
+                try:
+                    t0 = _t.perf_counter()
+                    _S(_P(NMAX=300, STOP_TOL=0), track_history=False).run()
+                    self._node_cost = (_t.perf_counter() - t0) / (300 * 46 * 22)
+                except Exception:
+                    pass
             box.append(est)
 
         # Tk нельзя трогать из фонового потока: результат забирает таймер

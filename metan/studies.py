@@ -207,6 +207,9 @@ class GridCheck:
     fine: object      # Results
     base_params: Params
     fine_params: Params
+    finer: object = None          # Results на третьей сетке (для GCI)
+    finer_params: Params = None
+    factor: int = 2
 
     def table(self):
         """Строки сравнения по вариантам: (α, имя, база, мелкая, отл. %)."""
@@ -224,10 +227,73 @@ class GridCheck:
                              a.diverged or b.diverged))
         return rows
 
+    def gci(self):
+        """Индекс сеточной сходимости (Roache; Celik и др., 2008) для φк и
+        Tвых по трём сеткам. Строки: dict(alpha, name, f3, f2, f1, p, ext,
+        gci, kind, bad), f1 - самая мелкая сетка.
 
-def grid_check(params, factor=2, iter_factor=3, progress=None, cancel=None):
-    fine_p = refined_params(params, factor, iter_factor)
-    out = [None, None]
+        kind: "monotone" - разности убывают, оценка надёжна;
+              "oscillating" - разности меняют знак;
+              "diverging" - разности не убывают (сетки ещё грубые);
+              "converged" - значения совпали (сгущение не нужно).
+        """
+        if self.finer is None:
+            return []
+        r = float(self.factor)
+        out = []
+        for a, b, c in zip(self.base.variants, self.fine.variants,
+                           self.finer.variants):
+            bad = a.diverged or b.diverged or c.diverged or \
+                False in (a.settled, b.settled, c.settled)
+            ea, eb, ec = exit_summary(a), exit_summary(b), exit_summary(c)
+            for name, f3, f2, f1 in (("φк", a.fkomp, b.fkomp, c.fkomp),
+                                     ("Tвых, K", ea["T"], eb["T"], ec["T"])):
+                e21, e32 = f1 - f2, f2 - f3
+                row = dict(alpha=a.values["ALFA"], name=name, f3=f3, f2=f2,
+                           f1=f1, p=np.nan, ext=np.nan, gci=np.nan, bad=bad)
+                scale = max(abs(f1), 1e-12)
+                if abs(e21) < 1e-6 * scale:
+                    row.update(kind="converged", gci=0.0, ext=f1)
+                elif e32 * e21 < 0:
+                    row.update(kind="oscillating",
+                               gci=1.25 * abs(e21) / scale * 100)
+                elif abs(e32) <= abs(e21):
+                    row.update(kind="diverging",
+                               gci=3.0 * abs(e21) / scale * 100)
+                else:
+                    pp = np.log(abs(e32 / e21)) / np.log(r)
+                    ext = f1 + e21 / (r ** pp - 1)
+                    row.update(kind="monotone", p=pp, ext=ext,
+                               gci=1.25 * abs(e21 / f1) / (r ** pp - 1) * 100)
+                out.append(row)
+        return out
+
+
+def _limit_iters(p):
+    """Предел итераций с запасом по оценке Nуст (решатель сам остановится
+    раньше, когда решение установится)."""
+    from .convergence import estimate
+    try:
+        n = int(1.5 * estimate(p)["n_req"]) + 500
+    except Exception:
+        n = p.NMAX
+    return dataclasses.replace(p, NMAX=max(p.NMAX, n))
+
+
+def grid_check(params, factor=2, iter_factor=3, progress=None, cancel=None,
+               levels=2):
+    """Тот же расчёт на сетках ×factor (и ×factor², если levels=3)."""
+    params = params.resolved()
+    ps = [params]
+    for _ in range(levels - 1):
+        q = refined_params(ps[-1], factor, 1)
+        ps.append(q)
+    ps = [_limit_iters(q) if q.STOP_TOL > 0 else
+          (q if k == 0 else dataclasses.replace(
+              q, NMAX=params.NMAX * iter_factor ** k,
+              NPRINT=params.NPRINT * iter_factor ** k))
+          for k, q in enumerate(ps)]
+    out = [None] * levels
 
     def run(idx, p):
         def prog(nvar, nvarm, niter, nmax):
@@ -236,11 +302,13 @@ def grid_check(params, factor=2, iter_factor=3, progress=None, cancel=None):
         out[idx] = Solver(p, progress=prog, cancel=cancel,
                           track_history=True).run()
 
-    with ThreadPoolExecutor(2) as ex:
-        fs = [ex.submit(run, 0, params), ex.submit(run, 1, fine_p)]
+    with ThreadPoolExecutor(levels) as ex:
+        fs = [ex.submit(run, k, q) for k, q in enumerate(ps)]
         for f in fs:
             f.result()
-    return GridCheck(out[0], out[1], params, fine_p)
+    if levels == 3:
+        return GridCheck(out[0], out[1], ps[0], ps[1], out[2], ps[2], factor)
+    return GridCheck(out[0], out[1], ps[0], ps[1], factor=factor)
 
 
 def params_replace(params, **kw):

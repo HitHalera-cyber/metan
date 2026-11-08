@@ -172,25 +172,30 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
     for J in range(2, JA3 + 1):
         RK4 = RK4 + 3.1416 * (A[IC2, J, NF] - A[IC2, J - 1, NF]) * \
             (A[IC2, J, NV1] ** 2 + A[IC2, J, NMU2] ** 2)
+    # Величины, не зависящие от узла, считаются один раз (в оригинале - в
+    # каждом узле; формулы и порядок действий те же, результат совпадает
+    # побитно, расчёт быстрее).
+    RZ1_C = fpow(2. * R[JN], 0.666) / fpow(X1[IC1], 0.333)     # камера
+    RZ1_P = fpow(2 * R[JA3], 0.666) / fpow(X1[IC1], 0.333)     # предкамера
+    RK = 3.1416 * (R[JA2] ** 2. - R[JA1] ** 2.) * ROS * VINS ** 3.
+    RK1 = (3.1416 * (R[JA] - R[JZ1]) * (R[JA] + R[JZ1]) * ROP * VINP
+           * VINP ** 2
+           + 3.1416 * R[JZ] ** 2. * A[1, 2, NRO3] * VINS1 ** 3.)
+    PK_C = fpow(RK + RK4, 0.333)
+    PK_P = fpow(RK1, 0.333)
     for J in range(1, JN + 1):
         IL = IMIN[J]
         IM = IMAX[J] + 1
         if J == JC:
             IM = IN
         for I in range(IL, IM + 1):
-            RZ1 = fpow(2. * R[JN], 0.666) / fpow(X1[IC1], 0.333)
             if I <= IC2:
-                RZ1 = fpow(2 * R[JA3], 0.666) / fpow(X1[IC1], 0.333)
-            RK = 3.1416 * (R[JA2] ** 2. - R[JA1] ** 2.) * ROS * VINS ** 3.
-            RK1 = (3.1416 * (R[JA] - R[JZ1]) * (R[JA] + R[JZ1]) * ROP * VINP
-                   * VINP ** 2
-                   + 3.1416 * R[JZ] ** 2. * A[1, 2, NRO3] * VINS1 ** 3.)
-            if I > IC2:
-                RK2 = RK + RK4
+                RZ1 = RZ1_P
+                PK = PK_P
             else:
-                RK2 = RK1
-            A[I, J, NMU] = 0.012 * RZ1 * fpow(A[I, J, NRO3], 0.666) * \
-                fpow(RK2, 0.333)
+                RZ1 = RZ1_C
+                PK = PK_C
+            A[I, J, NMU] = 0.012 * RZ1 * fpow(A[I, J, NRO3], 0.666) * PK
             A[I, J, NMU] = A[I, J, NMU] * 2.
 
 
@@ -332,8 +337,10 @@ def _rel_change(new, old):
 def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
         AE, AW, AN, AS, AE1, AW1, AN1, AS1, UKS, FKS, TKS, RSDU,
         IN, INM, JN, JNM, JA, JA1, JA2, JA3, JB, JB1, JC, JC1, JZ, JZ1,
-        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2):
+        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0):
     # IGN_I2 - последний узел зоны поджига по длине (в оригинале 11 = IC2+1)
+    # OMEGA - параметр верхней релаксации для ψ (1.0 - как в оригинале,
+    # чистый Гаусс-Зейдель; 1 < OMEGA < 2 - метод SOR, быстрее)
     # ---------- уравнение для вихря (NW) ----------
     if not (NITER <= NPRINT and NVAR == 1):
         RL = 0.1
@@ -437,7 +444,7 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                 ADNM = BBE + BBW + BBN + BBS
                 if ADNM == 0.:
                     continue                           # GO TO 21
-                A[I, J, NF] = ANUM / ADNM
+                A[I, J, NF] = Z + OMEGA * (ANUM / ADNM - Z)
             # 122
             RS = _rel_change(A[I, J, NF], Z)
             if abs(RS) > abs(RSDU[NF]):

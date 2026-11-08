@@ -63,6 +63,7 @@ class VariantResult:
     # True - остановился сам, решение установилось; False - дошёл до предела
     # итераций, не установившись (колебания); None - остановка выключена
     settled: object = None
+    stopped: bool = False       # прерван пользователем (частичный результат)
     # История сходимости: {"iter": [...], "omega": [...], "psi": [...],
     # "T": [...], "CH4": [...]} - макс. изменение за итерацию (отн.)
     history: dict = field(default_factory=dict)
@@ -77,6 +78,7 @@ class Results:
     text10: list = field(default_factory=list)   # строки shi10.dat
     text20: list = field(default_factory=list)   # строки shi20.dat
     elapsed: float = 0.0
+    stopped: bool = False       # остановлен кнопкой «Стоп» (keep_partial)
 
     def write_files(self, outdir="."):
         os.makedirs(outdir, exist_ok=True)
@@ -97,13 +99,21 @@ class Solver:
     """
 
     def __init__(self, params=None, progress=None, cancel=None,
-                 progress_every=10, track_history=True, snapshot_every=0):
+                 progress_every=10, track_history=True, snapshot_every=0,
+                 keep_partial=False, resume=None):
         self.p = (params or Params()).validate().resolved()
         self.progress = progress
         self.cancel = cancel
         self.progress_every = progress_every
         self.track_history = track_history
         self.snapshot_every = snapshot_every
+        # keep_partial: при остановке вернуть поля на текущей итерации, а не
+        # исключение Cancelled; resume: VariantResult, с полей которого
+        # продолжить (один вариант, та же сетка) ещё NMAX итераций
+        self.keep_partial = keep_partial
+        self.resume = resume
+        self._stopped = False
+        self._resume_ok = False
         self.F = np.float32 if self.p.precision == "float32" else np.float64
 
     # ------------------------------------------------------------------
@@ -113,10 +123,10 @@ class Solver:
         self.IN, self.JN = p.IN, p.JN
         self.INM, self.JNM = p.IN - 1, p.JN - 1
         n1, n2 = p.IN + 1, p.JN + 1
-        self.A = np.zeros((n1, n2, N3 + 1), dtype=dt)
+        self.A = np.zeros((n1, n2, N3 + 1), dtype=dt, order="F")
         for name in ("AE", "AW", "AN", "AS", "VS", "FKS", "TKS",
                      "AE1", "AW1", "AN1", "AS1", "UKS"):
-            setattr(self, name, np.zeros((n1, n2), dtype=dt))
+            setattr(self, name, np.zeros((n1, n2), dtype=dt, order="F"))
         self.BE = np.zeros(n1, dtype=dt)
         self.BW = np.zeros(n1, dtype=dt)
         self.BN = np.zeros(n2, dtype=dt)
@@ -403,6 +413,11 @@ class Solver:
         """Итерационный цикл варианта (метка 1 в RK2.FOR)."""
         p = self.p
         self.NITER = 0
+        limit = p.NMAX
+        if self._resume_ok:
+            self.NITER = int(self.resume.NITER)   # разгон и поджиг не повторяем
+            limit = self.NITER + p.NMAX
+        self._limit = limit
         last_cb = 0.0
         self._hist = {"iter": [], "omega": [], "psi": [], "T": [], "CH4": []}
         self._snaps = []
@@ -410,6 +425,7 @@ class Solver:
             else None
         # Остановка при установлении: изменение ψ и T за итерацию (относит.
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
+        snap_step = self._snapshot_step()
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -440,24 +456,27 @@ class Solver:
                   self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
                   self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
                   self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-                  self.IC2 + 1)
+                  self.IC2 + 1, float(p.OMEGA))
             if self.track_history:
                 self._record(prev)
-            if (self.snapshot_every and self.NITER <= p.NMAX
-                    and (self.NITER % self.snapshot_every == 0
+            if (snap_step and self.NITER <= p.NMAX
+                    and (self.NITER % snap_step == 0
                          or self.NITER == 1)):
                 self._snaps.append((self.NITER, self.A.astype(np.float32)))
             if self.cancel is not None and self.cancel():
+                if self.keep_partial:
+                    self._stopped = True
+                    break
                 raise Cancelled()
             if self.progress is not None and (
                     self.NITER % self.progress_every == 0
                     or self.NITER >= p.NMAX):
                 now = time.monotonic()
-                if now - last_cb > 0.05 or self.NITER >= p.NMAX:
+                if now - last_cb > 0.05 or self.NITER >= limit:
                     last_cb = now
-                    self.progress(self.NVAR, p.NVARM, min(self.NITER, p.NMAX),
-                                  p.NMAX)
-            if self.NITER >= p.NMAX:
+                    self.progress(self.NVAR, p.NVARM, min(self.NITER, limit),
+                                  limit)
+            if self.NITER >= limit:
                 break
             if tol > 0:
                 cur = self.A[:, :, (NF, NT)]
@@ -472,6 +491,25 @@ class Solver:
                 if calm >= 20 and self.NITER > max(p.NPRINT, 50):
                     self._settled = True
                     break
+
+    MAX_FRAMES = 120            # кадров анимации на вариант, не больше
+    SNAP_MEMORY = 400e6         # байт на кадры всех вариантов, не больше
+
+    def _snapshot_step(self):
+        """Шаг кадров анимации: не чаще заданного и так, чтобы кадров было
+        не больше MAX_FRAMES на вариант и они занимали не больше
+        SNAP_MEMORY (иначе на большой сетке кончается память)."""
+        if not self.snapshot_every:
+            return 0
+        p = self.p
+        frame = self.A.size * 4                      # float32
+        frames = min(self.MAX_FRAMES,
+                     max(2, int(self.SNAP_MEMORY / frame / max(p.NVARM, 1))))
+        step = max(int(self.snapshot_every), -(-int(p.NMAX) // frames))
+        if self._resume_ok:
+            step = max(step, int(self.snapshot_every))
+        self.snapshot_step_used = step
+        return step
 
     _HKEYS = (("omega", 0), ("psi", 1), ("T", 2), ("CH4", 3))
 
@@ -506,6 +544,9 @@ class Solver:
             while True:
                 self.NVAR += 1
                 self._variant(res)
+                if self._stopped:
+                    res.stopped = True
+                    break
                 if self.NVAR == p.NVARM:      # IF(NVAR.NE.NVARM) GO TO 90
                     break
         res.elapsed = time.monotonic() - t0
@@ -620,6 +661,13 @@ class Solver:
         self.DCMB = X2[JZ] * 2.
 
         self.init()
+        # продолжение расчёта: поля - с прошлой остановки (та же сетка)
+        self._resume_ok = (self.resume is not None and not preview
+                           and self.NVAR == 1
+                           and self.resume.A.shape == A.shape
+                           and self.resume.grid.get("JC") == self.JC)
+        if self._resume_ok:
+            A[...] = self.resume.A
         VR = A[1, JZ1 + 1, NMU2] / R[JZ1 + 1]
         if preview:
             return VariantResult(
@@ -712,8 +760,9 @@ class Solver:
             fkomp_kind=kind, fkomp=float(fk), extra=extra,
             A=A.copy(), X1=X1.copy(), X2=X2.copy(),
             IMIN=self.IMIN.copy(), IMAX=self.IMAX.copy(),
-            diverged=self.NITER > self.p.NMAX,
-            settled=None if self.NITER > self.p.NMAX else self._settled,
+            diverged=self.NITER > self._limit,
+            settled=None if self.NITER > self._limit else self._settled,
+            stopped=self._stopped,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
 
