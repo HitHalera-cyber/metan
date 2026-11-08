@@ -71,3 +71,11 @@ def test_fine_grid_converges():
     v = Solver(p).run().variants[0]
     assert not v.diverged
     assert np.diff(v.X2[1:41]).min() > 0
+
+
+def test_convergence_estimate_grows_with_grid():
+    from metan.convergence import estimate
+    a = estimate(Params())
+    b = estimate(Params(IN=100, JN=44, GRID_AUTO=1))
+    assert 0 < a["rho"] < b["rho"] < 1
+    assert 500 < a["n_req"] < 3000 and b["n_req"] > 2 * a["n_req"]

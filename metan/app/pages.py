@@ -294,20 +294,24 @@ class ConvergencePage(Page):
         lines = []
         for vv in variants:
             h = vv.history
-            tail = slice(-200, None)
-            last = {k: float(np.nanmax(np.asarray(h[k])[tail])) for k in
+            # медиана за последние 100 итераций: разовые скачки (узел
+            # однажды переходит порог воспламенения) не в счёт
+            tail = slice(-100, None)
+            last = {k: float(np.nanmedian(np.asarray(h[k])[tail])) for k in
                     ("psi", "T", "CH4")}
-            ok = last["psi"] < 5e-3 and last["T"] < 1e-2 and not vv.diverged
+            ok = last["psi"] < 1e-4 and last["T"] < 1e-3 and not vv.diverged
             lines.append(
-                "α=%.2f: за последние 200 итераций ψ меняется до %.1e, T до %.1e, "
-                "CH4 до %.1e  →  %s" % (
+                "α=%.2f: за итерацию (медиана последних 100) ψ меняется на %.1e, "
+                "T на %.1e, CH4 на %.1e  →  %s" % (
                     vv.values["ALFA"], last["psi"], last["T"], last["CH4"],
                     "РАСХОДИМОСТЬ" if vv.diverged else
-                    ("установился (изменения малы)" if ok
-                     else "не установился (идут заметные колебания)")))
+                    ("установился" if ok
+                     else "не установился - увеличьте число итераций Nит")))
         self.verdict.configure(
             text="\n".join(lines) +
-            "\nКритерий: ψ < 5·10⁻³ и T < 10⁻² (отн. изменение за итерацию).")
+            "\nКритерий: ψ < 10⁻⁴ и T < 10⁻³ (отн. изменение за итерацию). "
+            "Сколько итераций нужно - «Итераций до установления Nуст» в "
+            "разделе «Сетка».")
 
 
 # ======================================================================
