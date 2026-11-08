@@ -27,7 +27,6 @@ def test_app_all_pages(tmp_path):
         app.outdir.set(str(tmp_path))
         app.sidebar.vars["NVARM"].set("2")
         app.sidebar.vars["NMAX"].set("40")
-        app.sidebar.vars["NPRINT"].set("10")
         app.update()
         app.run()
         t0 = time.time()

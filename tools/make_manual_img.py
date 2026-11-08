@@ -103,7 +103,7 @@ def main():
     app.sidebar.open_section("geom")
     pump(app)
     shot("big_sidebar_geom.jpg", (0, 50, 380, 900))
-    app.sidebar.open_section("grid")
+    app.sidebar.open_section("calc")
     pump(app)
     shot("big_sidebar_grid.jpg", (0, 50, 380, 620))
     app.sidebar.open_section("mode")

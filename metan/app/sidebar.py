@@ -70,43 +70,18 @@ class Sidebar(ctk.CTkFrame):
                 if meta.get("hidden"):
                     self.hidden[name] = tk.StringVar()
                     continue
-                if name == "JZ":
-                    self.auto_grid_var = tk.BooleanVar(value=False)
-                    cb = check(body, "Границы автоматически (только Nx, Nr)", self.auto_grid_var,
-                               self._auto_grid_toggle)
-                    cb.grid(row=r, column=0, sticky="w", padx=6, pady=(8, 2))
-                    r += 1
-                    cap = tk.Label(body, text="Узлы-границы (номер узла, на "
-                                   "котором проходит граница)",
-                                   font=self.f_unit, anchor="w",
-                                   justify="left", wraplength=280)
-                    self._reg(cap, bg="panel", fg="muted", wrap=280)
-                    cap.grid(row=r, column=0, sticky="w", padx=6, pady=(2, 2))
-                    self._grid_caption = cap
-                    r += 1
                 r = self._row(body, r, name, meta)
                 if name == "ALFA":
                     r = self._multi_alpha(body, r)
                 if name == "JN":
-                    r = self._peclet_block(body, r)
+                    self._pe_gen = 0
+                    r = self._iters_block(body, r)
             if key == "mode":
                 self.alfa_lbl = label(body, "", 11, wraplength=280,
                                       justify="left")
                 self.alfa_lbl.configure(text_color=c("accent"))
                 self.alfa_lbl.grid(row=r, column=0, sticky="w", padx=6,
                                    pady=(2, 0))
-                r += 1
-            if key == "grid":
-                self.grid_lbl = label(body, "", 11, wraplength=280,
-                                      justify="left", muted=True)
-                self.grid_lbl.grid(row=r, column=0, sticky="w", padx=6,
-                                   pady=(6, 2))
-                r += 1
-                self._prop_btn = button(
-                    body, "Расставить границы пропорционально размерам",
-                    self.proportional_grid)
-                self._prop_btn.grid(row=r, column=0, sticky="ew", padx=4,
-                                    pady=(2, 6))
                 r += 1
             if key == "calc":
                 self.snap_var = tk.StringVar(value="20")
@@ -244,91 +219,33 @@ class Sidebar(ctk.CTkFrame):
         self.meta[name] = meta
         return r + 1
 
-    # ------------------------------------------------------------ Peh
-    PE_GOOD, PE_OK = 2.0, 5.0
-    PE_HELP = dict(
-        label="Сеточное число Пекле", sym="Peh", unit="",
-        short="Считается автоматически по сетке, его нельзя ввести",
-        help="Peh = ρ·(|u|·Δx + |v|·Δr) / μт - отношение переноса газа "
-             "течением к турбулентной диффузии на размере одной ячейки "
-             "сетки (медиана по всем ячейкам камеры).\n\n"
-             "Классическое число Куранта Co = w·Δt/Δx здесь не определено: "
-             "программа решает стационарные уравнения итерациями "
-             "Гаусса-Зейделя (метод установления), шага по времени Δt в ней "
-             "нет. Роль «сеточного» критерия играет Peh: конвекция "
-             "аппроксимируется разностями против потока, которые вносят "
-             "схемную вязкость ρ·w·h/2, т. е. Peh/2 от турбулентной.\n\n"
-             "Peh ≤ 2 - схемная вязкость не больше турбулентной, сетка "
-             "достаточна;\n2 < Peh ≤ 5 - допустимо, но результат заметно "
-             "зависит от сетки (проверьте вкладкой «Сетка ×2»);\nPeh > 5 - "
-             "сетка груба, увеличьте Nx и Nr.\n\n"
-             "Важно: Peh - критерий ТОЧНОСТИ сетки, а не сходимости итераций. "
-             "Мелкая сетка (малое Peh) сходится медленнее: может понадобиться "
-             "больше итераций Nит. Сошёлся ли расчёт, показывают вкладка "
-             "«Сходимость» и число итераций N (больше заданного - "
-             "расходимость).\n\n"
-             "До расчёта показывается оценка по 300 итерациям, после "
-             "расчёта - значение по полученному полю.")
-
-    def _peclet_block(self, parent, r):
-        fr = tk.Frame(parent, bd=0, highlightthickness=0)
-        self._reg(fr, bg="panel")
-        fr.grid(row=r, column=0, sticky="ew", pady=(4, 0))
-        fr.grid_columnconfigure(0, weight=1)
-        lab = tk.Label(fr, text="Число Пекле сетки  Peh", font=self.f_lab, anchor="w",
-                       justify="left", wraplength=150)
-        self._reg(lab, bg="panel", fg="fg", wrap=150)
-        lab.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=3)
-        self.pe_val = ctk.CTkLabel(fr, text="…", width=90, height=30,
-                                   corner_radius=8, fg_color=c("card"),
-                                   font=font(13, "bold", mono=True))
-        self.pe_val.grid(row=0, column=1, sticky="e", pady=3)
-        tk.Label(fr, width=6).grid(row=0, column=2)      # как столбец единиц
-        self._reg(fr.grid_slaves(row=0, column=2)[0], bg="panel")
-        self.pe_note = tk.Label(fr, text="", font=self.f_unit, anchor="w",
-                                justify="left", wraplength=270)
-        self._reg(self.pe_note, bg="panel", fg="muted", wrap=270)
-        self.pe_note.grid(row=1, column=0, columnspan=3, sticky="w", padx=6)
-        self.pe_lim = tk.Label(
-            fr, text="Пределы точности:  ≤ %g - хорошо;  %g…%g - допустимо;  "
-            "> %g - сгустите сетку. Сходимость - вкладка «Сходимость»."
-            % (self.PE_GOOD, self.PE_GOOD, self.PE_OK, self.PE_OK),
-            font=self.f_unit, anchor="w", justify="left", wraplength=270)
-        self._reg(self.pe_lim, bg="panel", fg="muted", wrap=270)
-        self.pe_lim.grid(row=2, column=0, columnspan=3, sticky="w", padx=6,
-                         pady=(0, 4))
-        for w in (fr, lab, self.pe_val, self.pe_note, self.pe_lim):
-            w.bind("<Button-3>", lambda e: self.show_help("_peh"), add="+")
-            w.bind("<Button-2>", lambda e: self.show_help("_peh"), add="+")
-        self.rows["_peh"] = fr
-        self.meta["_peh"] = self.PE_HELP
-        self._pe_gen = 0
-        r = self._iters_block(parent, r + 1)
-        return r
-
     # ------------------------------------------------------------ Nуст
     IT_HELP = dict(
         label="Итераций до установления", sym="Nуст", unit="",
-        short="Считается автоматически по сетке; сравните с Nит",
-        help="Сколько итераций нужно, чтобы решение установилось "
-             "(изменение ψ за итерацию меньше 10⁻⁵).\n\n"
-             "Функция тока ψ на каждой итерации уточняется одним проходом "
-             "Гаусса-Зейделя. Медленная часть ошибки за итерацию уменьшается "
-             "в 1/ρ раз, где ρ - спектральный радиус итерационной матрицы. "
-             "ρ зависит только от сетки: чем больше узлов, тем ближе ρ к 1 и "
-             "тем больше итераций нужно (примерно пропорционально Nx² или "
-             "Nr², если сетка сильно вытянута).\n\n"
-             "Nуст = 4·ln(10³)/(−ln ρ). Множитель 4 учитывает, что вместе с ψ "
-             "устанавливаются вихрь, температура и состав; он подобран по "
-             "расчётам (46×22 - 1150 итераций, 100×44 - 4300, 200×44 - "
-             "11600), оценка с небольшим запасом.\n\n"
-             "Запас K = Nит / Nуст:\n"
-             "K ≥ 1 - расчёт установится;\n0.5 ≤ K < 1 - может не успеть "
-             "установиться, проверьте вкладку «Сходимость»;\nK < 0.5 - не "
-             "установится: результат (φк и поля) будет промежуточным. "
-             "Увеличьте Nит до Nуст или уменьшите сетку.\n\n"
-             "Пример: при сетке 1000×220 ρ ≈ 0.9999 и нужно более 200 000 "
-             "итераций - поэтому на ней расчёт за 1000 итераций не сходится.")
+        short="Сколько итераций понадобится этой сетке; считается само",
+        help="Простыми словами: расчёт идёт «шагами» - на каждой итерации "
+             "поля немного уточняются, пока не перестанут меняться. Nуст - "
+             "примерно сколько таких шагов понадобится выбранной сетке.\n\n"
+             "Почему число зависит от сетки: за одну итерацию поправка "
+             "передаётся только в соседние узлы. Чем подробнее сетка, тем "
+             "больше узлов от одного края камеры до другого и тем больше "
+             "шагов нужно, чтобы поправка «дошла» везде. Число итераций "
+             "растёт примерно как квадрат числа узлов: 46×22 - около 1300, "
+             "100×44 - около 4000, 200×88 - около 16 000, 1000×220 - больше "
+             "200 000.\n\n"
+             "Как это используется: программа сама останавливается, как "
+             "только решение установилось, а Nит - только предел. Если Nит "
+             "меньше Nуст, расчёт, скорее всего, упрётся в предел, не "
+             "успев установиться, - Nуст подсказывает это ещё до запуска.\n\n"
+             "Как считается: при каждой итерации ψ уточняется одним проходом "
+             "метода Гаусса-Зейделя; ошибка за итерацию уменьшается в 1/ρ "
+             "раз, где ρ - спектральный радиус итерационной матрицы (зависит "
+             "только от сетки и находится до расчёта). Nуст = "
+             "4·ln(10³)/(−ln ρ); множитель 4 подобран по расчётам - вместе с "
+             "ψ устанавливаются вихрь, температура и состав.\n\n"
+             "Запас K = Nит / Nуст: ≥ 1 - успеет установиться; 0.5…1 - может "
+             "не успеть; < 0.5 - не успеет, увеличьте Nит или уменьшите "
+             "сетку.")
 
     def _iters_block(self, parent, r):
         fr = tk.Frame(parent, bd=0, highlightthickness=0)
@@ -350,13 +267,14 @@ class Sidebar(ctk.CTkFrame):
         self.it_note = tk.Label(fr, text="", font=self.f_unit, anchor="w",
                                 justify="left", wraplength=270)
         self._reg(self.it_note, bg="panel", fg="muted", wrap=270)
-        self.it_note.grid(row=1, column=0, columnspan=3, sticky="w", padx=6)
-        lim = tk.Label(fr, text="Пределы сходимости, запас K = Nит / Nуст:  "
-                       "≥ 1 - установится;  0.5…1 - может не успеть;  "
-                       "< 0.5 - не установится", font=self.f_unit,
+        self.it_note.grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
+        lim = tk.Label(fr, text="Примерно столько итераций нужно этой сетке, "
+                       "чтобы решение перестало меняться. Запас K = Nит / "
+                       "Nуст:  ≥ 1 - успеет;  0.5…1 - может не успеть;  "
+                       "< 0.5 - не успеет", font=self.f_unit,
                        anchor="w", justify="left", wraplength=270)
         self._reg(lim, bg="panel", fg="muted", wrap=270)
-        lim.grid(row=2, column=0, columnspan=3, sticky="w", padx=6,
+        lim.grid(row=1, column=0, columnspan=3, sticky="w", padx=6,
                  pady=(0, 4))
         for w in (fr, lab, self.it_val, self.it_note, lim):
             w.bind("<Button-3>", lambda e: self.show_help("_nreq"), add="+")
@@ -383,51 +301,25 @@ class Sidebar(ctk.CTkFrame):
         col = "accent" if k >= 1 else ("warn" if k >= 0.5 else "danger")
         self.it_val.configure(text="%.0f" % n if n < 1e7 else "> 10⁷",
                               text_color=c(col))
-        verdict = ("установится" if k >= 1 else
-                   "может не успеть" if k >= 0.5 else "не установится")
-        self.it_note.configure(text="Задано Nит = %d → запас K = %.2f: %s. "
-                               "ρ = %.6f." % (nmax, k, verdict, est["rho"]))
+        verdict = ("успеет установиться" if k >= 1 else
+                   "может не успеть" if k >= 0.5 else "не успеет")
+        self.it_note.configure(text="Предел Nит = %d → запас K = %.2f: %s."
+                               % (nmax, k, verdict))
 
-    def show_peclet(self, pe, source):
-        """Показать Peh (dict из analysis.cell_peclet) и его оценку."""
-        if not pe:
-            self.pe_val.configure(text="—", text_color=c("muted"))
-            self.pe_note.configure(text=source)
-            return
-        x = pe["median"]
-        col = ("accent" if x <= self.PE_GOOD else
-               "warn" if x <= self.PE_OK else "danger")
-        self.pe_val.configure(text="%.2f" % x, text_color=c(col))
-        self.pe_note.configure(text="Аналог числа Куранта (правый щелчок - "
-                               "подробнее). %s; у струй до %.0f."
-                               % (source[0].upper() + source[1:], pe["p95"]))
-
-    def _estimate_peclet(self, prm):
-        """Оценка Peh в фоне (300 итераций, ~0.1 с) при каждом изменении."""
-        import dataclasses
+    def _estimate_iters(self, prm):
+        """Оценка Nуст в фоне (спектральный радиус, доли секунды)."""
         import threading
         self._pe_gen += 1
         gen = self._pe_gen
-        self.pe_val.configure(text="…", text_color=c("muted"))
         self.it_val.configure(text="…", text_color=c("muted"))
 
         def work():
-            from .. import analysis, convergence
-            from ..solver import Solver
+            from .. import convergence
             try:
                 est = convergence.estimate(prm)
             except Exception:
                 est = None
-            pe = "big"
-            if prm.IN * prm.JN <= 20000:     # иначе оценка Peh слишком долгая
-                try:
-                    q = dataclasses.replace(prm, NVARM=1, NMAX=300,
-                                            NPRINT=min(prm.NPRINT, 200))
-                    v = Solver(q, track_history=False).run().variants[0]
-                    pe = analysis.cell_peclet(v)
-                except Exception:
-                    pe = None
-            box.append((est, pe))
+            box.append(est)
 
         # Tk нельзя трогать из фонового потока: результат забирает таймер
         box = []
@@ -436,13 +328,7 @@ class Sidebar(ctk.CTkFrame):
             if gen != self._pe_gen:
                 return
             if box:
-                est, pe = box[0]
-                self.show_iters(est)
-                if pe == "big":
-                    self.show_peclet(None, "Крупная сетка: Peh будет "
-                                     "посчитано после расчёта")
-                else:
-                    self.show_peclet(pe, "оценка до расчёта")
+                self.show_iters(box[0])
             else:
                 self.after(60, check)
         threading.Thread(target=work, daemon=True).start()
@@ -554,8 +440,6 @@ class Sidebar(ctk.CTkFrame):
                 self.hidden[k].set(str(v))
         self.multi_var.set(p.NVARM > 1)
         self._multi_toggle()
-        self.auto_grid_var.set(p.GRID_AUTO == 1)
-        self._auto_grid_toggle()
         self._changed()
 
     def params(self):
@@ -596,52 +480,6 @@ class Sidebar(ctk.CTkFrame):
             self.after_cancel(self._preview_job)
         self._preview_job = self.after(350, self.update_preview)
 
-    def _grid_text(self, prm):
-        try:
-            g = auto_grid(prm)
-        except ValueError as e:
-            return str(e)
-        txt = ("Считаются по размерам камеры (их не вводят): горло по радиусу "
-               "JC = %d (r ≥ dкр/2), горло по длине IC = Nx − 1 = %d, начало "
-               "сужения IC1 = IC − (Nr − JC) = %d."
-               % (g["JC"], g["IC"], g["IC1"]))
-        if prm.GRID_AUTO == 1:
-            txt += (" Границы: струя %d, щель горючего %d–%d, предкамера %d, "
-                    "щель окислителя %d–%d, уступ %d."
-                    % (g["JZ"], g["JZ1"], g["JA"], g["JA3"], g["JA1"],
-                       g["JA2"], g["IC2"]))
-        return txt
-
-    BORDER_NODES = ("JZ", "JZ1", "JA", "JA3", "JA1", "JA2", "IC2")
-
-    def _auto_grid_toggle(self):
-        """Автоматические границы: вводятся только Nx и Nr (GRID_AUTO = 1)."""
-        on = self.auto_grid_var.get()
-        for k in self.BORDER_NODES:
-            (self.rows[k].grid_remove if on else self.rows[k].grid)()
-        for w in (self._grid_caption, self._prop_btn):
-            (w.grid_remove if on else w.grid)()
-        self.hidden["GRID_AUTO"].set("1" if on else "2")
-        self._changed()
-
-    def proportional_grid(self):
-        """Заполнить узлы-границы пропорционально размерам камеры."""
-        import dataclasses
-        from ..params import proportional_grid
-        try:
-            prm = self.params()
-        except ValueError:
-            prm = None
-        try:
-            if prm is None:
-                raise ValueError("сначала исправьте исходные данные")
-            g = proportional_grid(dataclasses.replace(prm, GRID_AUTO=1))
-        except ValueError as e:
-            self._set_help("Не удалось расставить узлы", str(e))
-            return
-        for k in ("JZ", "JZ1", "JA", "JA3", "JA1", "JA2", "IC2"):
-            self.vars[k].set(str(g[k]))
-
     def update_preview(self):
         """Перерисовать мини-схему и проверить геометрию."""
         self._preview_job = None
@@ -654,8 +492,7 @@ class Sidebar(ctk.CTkFrame):
         try:
             prm = self.params()
             msgs = geometry_warnings(prm)
-            self.grid_lbl.configure(text=self._grid_text(prm))
-            self._estimate_peclet(prm)
+            self._estimate_iters(prm)
             pv = Solver(prm).preview()
             plotting.draw_geometry(ax, pv, grid=False, dims=False,
                                    fg=p_["fg"], accent=p_["accent"])

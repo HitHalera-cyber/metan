@@ -60,6 +60,9 @@ class VariantResult:
     IMIN: np.ndarray
     IMAX: np.ndarray
     diverged: bool = False
+    # True - остановился сам, решение установилось; False - дошёл до предела
+    # итераций, не установившись (колебания); None - остановка выключена
+    settled: object = None
     # История сходимости: {"iter": [...], "omega": [...], "psi": [...],
     # "T": [...], "CH4": [...]} - макс. изменение за итерацию (отн.)
     history: dict = field(default_factory=dict)
@@ -405,6 +408,14 @@ class Solver:
         self._snaps = []
         prev = self.A[:, :, (NW, NF, NT, NMFU1)].copy() if self.track_history \
             else None
+        # Остановка при установлении: изменение ψ и T за итерацию (относит.
+        # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
+        tol = float(p.STOP_TOL)
+        self._settled = None
+        if tol > 0:
+            self._settled = False
+            stop_prev = self.A[:, :, (NF, NT)].copy()
+            calm = 0
         while True:
             self.NITER += 1
             K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
@@ -448,6 +459,19 @@ class Solver:
                                   p.NMAX)
             if self.NITER >= p.NMAX:
                 break
+            if tol > 0:
+                cur = self.A[:, :, (NF, NT)]
+                worst = 0.
+                for n in (0, 1):
+                    scale = float(np.max(np.abs(cur[:, :, n])))
+                    if scale > 0:
+                        worst = max(worst, float(np.max(np.abs(
+                            cur[:, :, n] - stop_prev[:, :, n]))) / scale)
+                stop_prev[...] = cur
+                calm = calm + 1 if worst < tol else 0
+                if calm >= 20 and self.NITER > max(p.NPRINT, 50):
+                    self._settled = True
+                    break
 
     _HKEYS = (("omega", 0), ("psi", 1), ("T", 2), ("CH4", 3))
 
@@ -689,6 +713,7 @@ class Solver:
             A=A.copy(), X1=X1.copy(), X2=X2.copy(),
             IMIN=self.IMIN.copy(), IMAX=self.IMAX.copy(),
             diverged=self.NITER > self.p.NMAX,
+            settled=None if self.NITER > self.p.NMAX else self._settled,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
 

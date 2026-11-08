@@ -56,11 +56,11 @@ def test_auto_grid():
 
 def test_derived_nodes_default_is_fortran_grid():
     from metan.params import auto_grid
-    g = auto_grid(Params())
+    g = auto_grid(Params(GRID_AUTO=2))
     assert (g["JC"], g["IC"], g["IC1"]) == (6, 45, 29)
-    assert auto_grid(Params(DKR=10))["JC"] > g["JC"]
+    assert auto_grid(Params(GRID_AUTO=2, DKR=10))["JC"] > g["JC"]
     with pytest.raises(ValueError):
-        Params(JZ=7).validate()          # границы не по порядку
+        Params(GRID_AUTO=2, JZ=7).validate()     # границы не по порядку
 
 
 def test_fine_grid_converges():
@@ -79,3 +79,11 @@ def test_convergence_estimate_grows_with_grid():
     b = estimate(Params(IN=100, JN=44, GRID_AUTO=1))
     assert 0 < a["rho"] < b["rho"] < 1
     assert 500 < a["n_req"] < 3000 and b["n_req"] > 2 * a["n_req"]
+
+
+def test_auto_stop():
+    from metan import Solver
+    v = Solver(Params(NMAX=5000), track_history=False).run().variants[0]
+    assert v.settled is True and 600 < v.NITER < 3000
+    f = Solver(Params.fortran(NVARM=1), track_history=False).run().variants[0]
+    assert f.settled is None and f.NITER == 1000

@@ -154,7 +154,9 @@ class App(ctk.CTk):
             sel = n == self.variant_idx
             txt = "α = %.2f · %s" % (v.values["ALFA"],
                                      "расходится" if v.diverged
-                                     else "φк %.3f" % v.fkomp)
+                                     else "φк %.3f%s" % (
+                                         v.fkomp, " ⚠" if v.settled is False
+                                         else ""))
             b = ctk.CTkButton(
                 self.chips_fr, text=txt, height=30, corner_radius=15,
                 font=font(12, mono=True), width=10,
@@ -176,6 +178,12 @@ class App(ctk.CTk):
         if v.diverged:
             return ("Вариант α = %.2f: расчёт не сошёлся за отведённое число "
                     "итераций (N = %d), результаты недостоверны." % (a, v.NITER))
+        if v.settled is False:
+            return ("Вариант α = %.2f: решение не установилось за %d итераций "
+                    "- поля продолжают колебаться, φк = %.4f взят на последней "
+                    "итерации и может быть неточным. Увеличьте предел итераций "
+                    "Nит; если не поможет - колебания вызывает сама модель "
+                    "(см. руководство)." % (a, v.NITER, v.fkomp))
         return ("Вариант α = %.2f.\n"
                 "φк = %.4f — коэффициент полноты сгорания "
                 "(1 — сгорело всё, что могло сгореть).\n"
@@ -303,12 +311,15 @@ class App(ctk.CTk):
                     "ṁ": "%.5f" % val["Ms"],
                     "wг": "%.1f" % val["Vgor"],
                     "wок": "%.1f" % val["Vok"],
-                    "N": "%d%s" % (v.NITER, " расх." if v.diverged else ""),
+                    "N": "%d%s" % (v.NITER, " расх." if v.diverged else
+                                   " не уст." if v.settled is False else ""),
                     "Tвых": "%.0f" % ex["T"], "gCH4 вых": "%.4f" % ex["CH4"],
                     "gO2 вых": "%.4f" % ex["O2"], "gCO2 вых": "%.4f" % ex["CO2"]}
+            bad = v.diverged or v.settled is False
             for k, lv in self.kv.items():
                 lv.configure(text=data[k],
-                             text_color=c("danger") if v.diverged and k in
+                             text_color=(c("danger") if v.diverged else
+                                         c("warn")) if bad and k in
                              ("φк", "N") else c("fg"))
         self.mini.clear()
         ax = self.mini.add_subplot(111)
@@ -474,16 +485,18 @@ class App(ctk.CTk):
             self.results = res
             self.variant_idx = 0
             self.add_run(res)
-            self.sidebar._pe_gen += 1          # оценка устарела
-            self.sidebar.show_peclet(analysis.cell_peclet(res.variants[0]),
-                                     "по результатам расчёта")
             self._build_chips()
             self._update_right()
             self.files_lbl.configure(text="Записано: " + ", ".join(
                 os.path.basename(f) for f in files))
             bad = sum(v.diverged for v in res.variants)
-            self.status("Расчёт за %.1f с.%s" % (
-                res.elapsed, " Расходимость в %d вариантах!" % bad if bad else ""))
+            unsettled = sum(v.settled is False for v in res.variants)
+            its = ", ".join(str(v.NITER) for v in res.variants)
+            self.status("Расчёт за %.1f с, итераций: %s.%s%s" % (
+                res.elapsed, its,
+                " Расходимость в %d вариантах!" % bad if bad else "",
+                " Не установилось вариантов: %d (колебания) - φк может быть "
+                "неточным." % unsettled if unsettled else ""))
             self.page.refresh()
 
         self.run_task(job, done, "Расчёт")
