@@ -18,7 +18,9 @@ from .theme import MONO, SANS, c, pal
 from .widgets import Canvas, button, check, font, label, option, _scaling
 
 # подписи вариантов в выпадающих списках
-CHOICES = {"NCORD": {"2": "осесимметричная", "1": "плоская"}}
+CHOICES = {"NCORD": {"2": "осесимметричная", "1": "плоская"},
+           "TMODEL": {"0": "исходная", "1": "сглаженная",
+                      "2": "равновесная"}}
 
 HELP_HINT = ("Щёлкните правой кнопкой мыши по параметру, чтобы увидеть, "
              "что он означает.")

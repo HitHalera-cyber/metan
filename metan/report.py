@@ -106,6 +106,10 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         if name in ("DALFA", "NVARM") and p.NVARM == 1:
             continue
         rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
+    rows.append(("Модель температуры", "", {0: "исходная (как в Фортране)",
+                                            1: "сглаженная",
+                                            2: "равновесная (термодинамический "
+                                               "расчёт)"}.get(p.TMODEL, "?"), ""))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
 

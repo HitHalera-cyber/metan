@@ -426,6 +426,7 @@ class Solver:
         # Остановка при установлении: изменение ψ и T за итерацию (относит.
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
+        self._ttab = self._temperature_table()
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -437,7 +438,8 @@ class Solver:
             K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
                      self.IN, self.JN, self.JA, self.JZ, self.JZ1, self.JA1,
                      self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
-                     self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1)
+                     self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
+                     int(p.TMODEL), float(p.TSMOOTH), *self._ttab)
             self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
                                   self.IMAX, self.VS, self.FKS, self.UKS,
                                   self.INM, self.JNM, self.JA3, self.JC,
@@ -491,6 +493,23 @@ class Solver:
                 if calm >= 20 and self.NITER > max(p.NPRINT, 50):
                     self._settled = True
                     break
+
+    _TT_CACHE = {}
+
+    def _temperature_table(self):
+        """Таблица равновесной температуры T(f) для TMODEL = 2 (по давлению в
+        камере и энтальпии горючего; строится один раз, ~1 с)."""
+        p = self.p
+        if int(p.TMODEL) != 2:
+            z = np.zeros(2)
+            return (z, z + 1., z)
+        key = (float(p.P), float(p.H))
+        if key not in self._TT_CACHE:
+            from . import thermo
+            f, T, cp, h = thermo.adiabatic_table(p.P, p.H)
+            self._TT_CACHE[key] = (T.astype(np.float64), cp.astype(np.float64),
+                                   h.astype(np.float64))
+        return self._TT_CACHE[key]
 
     MAX_FRAMES = 120            # кадров анимации на вариант, не больше
     SNAP_MEMORY = 400e6         # байт на кадры всех вариантов, не больше

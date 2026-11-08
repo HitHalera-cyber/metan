@@ -51,6 +51,26 @@ NK = 17
 N3 = 17
 
 
+# ----------------------------------------------------------------------
+# Температура смеси: три модели (параметр TMODEL)
+#   0 - как в исходной программе: T = h_s / cp_ср + 293 и поправочный
+#       множитель 1.0 / 1.2 / 1.1 скачком при местном α = 0.2 и 0.8;
+#   1 - то же, но множитель меняется плавно (линейно в полосе ширины TW
+#       вокруг α = 0.2 и 0.8) - без разрыва;
+#   2 - термодинамический расчёт: равновесная температура продуктов
+#       сгорания (с диссоциацией) при местном элементном составе, энтальпии
+#       и давлении в камере. Берётся из таблицы T(f), f - массовая доля
+#       «горючих» элементов, построенной заранее (metan/thermo.py), с
+#       поправкой на отличие местной энтальпии: T = Tтаб(f) + (h − hтаб(f))/cpтаб.
+# ----------------------------------------------------------------------
+@jit
+def _ramp(x, c, w):
+    if w <= 0.:
+        return 1.0 if x >= c else 0.0
+    v = (x - (c - 0.5 * w)) / w
+    return 0. if v < 0. else (1. if v > 1. else v)
+
+
 @jit
 def fpow(x, y):
     """x**y для дробного y; для x < 0 даёт NaN, как Фортран."""
@@ -65,7 +85,7 @@ def fpow(x, y):
 @jit
 def viscos(A, X1, R, IMIN, IMAX, PKS,
            IN, JN, JA, JZ, JZ1, JA1, JA2, JA3, JC, IC1, IC2,
-           VINP, VINS, ROP, ROS, VINS1):
+           VINP, VINS, ROP, ROS, VINS1, TMODE, TW, TAB_T, TAB_CP, TAB_H):
     RL = 0.1
     # DO 100: отрицательные концентрации -> 0
     for K in range(3, 10):
@@ -141,11 +161,33 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
             if TZ < 0.0:
                 TZ = 0.0
             if not (TQ <= 1.e-10):
-                A[I, J, NT] = TZ / TQ + 293.
-                if XXX > 0.8:
-                    A[I, J, NT] = A[I, J, NT] * 1.1
-                if XXX >= 0.2 and XXX <= 0.8:
-                    A[I, J, NT] = A[I, J, NT] * 1.2
+                if TMODE == 2:
+                    zs = ZOKD + AZK * 0.2034 + A[I, J, NMFU1]
+                    fz = (AZK * 0.2034 + A[I, J, NMFU1]) / zs if zs > 0. else 0.
+                    if fz < 0.:
+                        fz = 0.
+                    if fz > 1.:
+                        fz = 1.
+                    nt = TAB_T.shape[0] - 1
+                    q = fz * nt
+                    k0 = int(q)
+                    if k0 >= nt:
+                        k0 = nt - 1
+                    w = q - k0
+                    Tt = TAB_T[k0] * (1. - w) + TAB_T[k0 + 1] * w
+                    ct = TAB_CP[k0] * (1. - w) + TAB_CP[k0 + 1] * w
+                    ht = TAB_H[k0] * (1. - w) + TAB_H[k0 + 1] * w
+                    A[I, J, NT] = Tt + (A[I, J, NMU1] - ht) / max(ct, 0.5)
+                elif TMODE == 1:
+                    A[I, J, NT] = (TZ / TQ + 293.) * (
+                        1.0 + 0.2 * _ramp(XXX, 0.2, TW)
+                        - 0.1 * _ramp(XXX, 0.8, TW))
+                else:
+                    A[I, J, NT] = TZ / TQ + 293.
+                    if XXX > 0.8:
+                        A[I, J, NT] = A[I, J, NT] * 1.1
+                    if XXX >= 0.2 and XXX <= 0.8:
+                        A[I, J, NT] = A[I, J, NT] * 1.2
             # 50
             if A[I, J, NT] < 293.:
                 A[I, J, NT] = 293.
