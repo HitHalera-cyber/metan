@@ -107,7 +107,14 @@ def estimate(params, eps=1e-3):
     if rgs >= 1:
         return dict(rho=rgs, n_req=float("inf"))
     n0 = np.log(eps) / np.log(rgs)
-    return dict(rho=rgs, n_req=float(FIT_C * SAFETY * n0 ** FIT_P), n0=float(n0))
+    k = MODEL_FACTOR.get(int(getattr(params, "TMODEL", 0)), 1.0)
+    return dict(rho=rgs, n_req=float(FIT_C * SAFETY * k * n0 ** FIT_P),
+                n0=float(n0))
 
 
 FIT_C, FIT_P, SAFETY = 23.9, 0.703, 1.15
+# Поправка на модель температуры: формула подобрана для исходной модели;
+# сглаженная сходится так же, равновесная - в 1.16-1.37 раза дольше
+# (сетки 46×22 … 150×60: 1479, 4092, 4337, 6443 итерации против 1222,
+# 2714, 2910, 5088).
+MODEL_FACTOR = {0: 1.0, 1: 1.0, 2: 1.35}
