@@ -427,7 +427,6 @@ class Solver:
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
         self._ttab = self._temperature_table()
-        self._hook_start()
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -441,7 +440,6 @@ class Solver:
                      self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
                      self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
                      int(p.TMODEL), float(p.TSMOOTH), *self._ttab)
-            self._hook_after_viscos()
             self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
                                   self.IMAX, self.VS, self.FKS, self.UKS,
                                   self.INM, self.JNM, self.JA3, self.JC,
@@ -451,7 +449,6 @@ class Solver:
                      self.AE, self.AW, self.AN, self.AS,
                      self.AE1, self.AW1, self.AN1, self.AS1,
                      self.JNM, self.JA3, self.JC, self.IC, self.IC2)
-            self._hook_after_convec()
             K.eqn(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
                   self.BE, self.BW, self.BN, self.BS,
                   self.AE, self.AW, self.AN, self.AS,
@@ -461,8 +458,7 @@ class Solver:
                   self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
                   self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
                   self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-                  self.IC2 + 1, float(p.OMEGA), self._react, self._w_relax)
-            self._hook_after_eqn()
+                  self.IC2 + 1, float(p.OMEGA))
             if self.track_history:
                 self._record(prev)
             if (snap_step and self.NITER <= p.NMAX
@@ -498,33 +494,13 @@ class Solver:
                     self._settled = True
                     break
 
-    # ---- точки подключения уточнённой модели (metan/advanced); здесь
-    # ничего не делают, результат основной программы от них не зависит
-    _react = 1                  # 0 - мгновенная реакция в EQN выключена
-    _w_relax = 1.0              # нижняя релаксация вихря (1 - как в оригинале)
-
-    def _hook_start(self):
-        pass
-
-    def _hook_after_viscos(self):
-        pass
-
-    def _hook_after_convec(self):
-        pass
-
-    def _hook_after_eqn(self):
-        pass
-
-    def _hook_end(self):
-        pass
-
     _TT_CACHE = {}
 
     def _temperature_table(self):
         """Таблица равновесной температуры T(f) для TMODEL = 2 (по давлению в
         камере и энтальпии горючего; строится один раз, ~1 с)."""
         p = self.p
-        if int(p.TMODEL) not in (2, 3):
+        if int(p.TMODEL) != 2:
             z = np.zeros(2)
             return (z, z + 1., z)
         key = (float(p.P), float(p.H))
@@ -766,7 +742,6 @@ class Solver:
         out.append(line)
 
         self._iterate()
-        self._hook_end()
         out.append(" " * 25 + "NITER=" + fmt_i(self.NITER, 4))
 
         if self.p.model == "original":

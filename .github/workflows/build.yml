@@ -34,7 +34,7 @@ jobs:
         run: |
           $v = python -c "import metan; print(metan.__version__)"
           "version=$v" >> $env:GITHUB_OUTPUT
-      - run: python -m PyInstaller --noconfirm --windowed --name Metan --icon metan/app/assets_data/metan.ico --collect-data customtkinter --collect-data docx --collect-data metan --hidden-import metan.advanced.page metan_gui.pyw
+      - run: python -m PyInstaller --noconfirm --windowed --name Metan --icon metan/app/assets_data/metan.ico --collect-data customtkinter --collect-data docx --collect-data metan metan_gui.pyw
       # прежняя версия - из ветки classic, без изменений
       - uses: actions/checkout@v4
         with:
