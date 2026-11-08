@@ -177,6 +177,11 @@ def main():
     app.show_page("Файлы .dat")
     pump(app)
     shot("big_Файлы_dat.jpg")
+    if "Уточнённая модель" in app._page_cls:
+        app.show_page("Уточнённая модель")
+        app.page.run_all()
+        wait(app)
+        shot("big_Уточнённая.jpg")
 
     app.toggle_theme()
     app.show_page("Поля")

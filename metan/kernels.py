@@ -161,7 +161,7 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
             if TZ < 0.0:
                 TZ = 0.0
             if not (TQ <= 1.e-10):
-                if TMODE == 2:
+                if TMODE == 2 or TMODE == 3:
                     zs = ZOKD + AZK * 0.2034 + A[I, J, NMFU1]
                     fz = (AZK * 0.2034 + A[I, J, NMFU1]) / zs if zs > 0. else 0.
                     if fz < 0.:
@@ -178,6 +178,19 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
                     ct = TAB_CP[k0] * (1. - w) + TAB_CP[k0 + 1] * w
                     ht = TAB_H[k0] * (1. - w) + TAB_H[k0 + 1] * w
                     A[I, J, NT] = Tt + (A[I, J, NMU1] - ht) / max(ct, 0.5)
+                    if TMODE == 3:
+                        # горение с конечной скоростью (уточнённая модель):
+                        # тепло выделилось в доле c от возможного
+                        lim = A[I, J, NMFU1]
+                        if A[I, J, NMOX1] / 3.9166 < lim:
+                            lim = A[I, J, NMOX1] / 3.9166
+                        limu = fz * zs
+                        if (1. - fz) * zs / 3.9166 < limu:
+                            limu = (1. - fz) * zs / 3.9166
+                        c = 1. - lim / limu if limu > 1e-12 else 1.
+                        if c < 0.:
+                            c = 0.
+                        A[I, J, NT] = 293. + c * (A[I, J, NT] - 293.)
                 elif TMODE == 1:
                     A[I, J, NT] = (TZ / TQ + 293.) * (
                         1.0 + 0.2 * _ramp(XXX, 0.2, TW)
@@ -379,7 +392,8 @@ def _rel_change(new, old):
 def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
         AE, AW, AN, AS, AE1, AW1, AN1, AS1, UKS, FKS, TKS, RSDU,
         IN, INM, JN, JNM, JA, JA1, JA2, JA3, JB, JB1, JC, JC1, JZ, JZ1,
-        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0):
+        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0,
+        REACT=1, W_RELAX=1.0):
     # IGN_I2 - последний узел зоны поджига по длине (в оригинале 11 = IC2+1)
     # OMEGA - параметр верхней релаксации для ψ (1.0 - как в оригинале,
     # чистый Гаусс-Зейдель; 1 < OMEGA < 2 - метод SOR, быстрее)
@@ -444,7 +458,7 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                 if abs(RS) > abs(RSDU[NW]):
                     RSDU[NW] = RS
                 if NITER >= 20:
-                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * 1.0
+                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * W_RELAX
                 if A[I, J, NW] >= 1.e+14:
                     A[I, J, NW] = 1.e+14
                 if A[I, J, NW] <= -1.e+14:
@@ -584,6 +598,8 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                 react = True        # GO TO 33: принудительное зажигание
             elif A[I, J, NT] < ROM1:
                 react = False       # GO TO 304
+            if REACT == 0:
+                react = False       # горение считает уточнённая модель
             if react:
                 # 33
                 if A[I, J, NMFU1] <= 1.e-20:

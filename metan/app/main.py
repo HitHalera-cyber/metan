@@ -58,6 +58,14 @@ def _fmt_time(sec):
 PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
          SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
 
+# Экспериментальная вкладка «Уточнённая модель» (metan/advanced). Чтобы
+# убрать её, достаточно удалить папку metan/advanced.
+try:
+    from ..advanced.page import AdvancedPage
+    PAGES.append(AdvancedPage)
+except ImportError:
+    pass
+
 
 class App(ctk.CTk):
     def __init__(self, mode=None, cfg=None):
