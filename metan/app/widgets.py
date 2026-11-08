@@ -586,7 +586,10 @@ class Table(ctk.CTkFrame):
                 vals = self.tree.item(it, "values")
                 if i < len(vals):
                     n = max(n, len(str(vals[i])))
-            self.tree.column(str(i), width=int(max(90, 11 * n + 24) * k))
+            # ширина по содержимому; не сжимать - если не помещается,
+            # появляется горизонтальная прокрутка
+            self.tree.column(str(i), width=int(max(90, 11 * n + 24) * k),
+                             stretch=len(self.columns) <= 4)
 
     def set_columns(self, columns):
         self.tree.delete(*self.tree.get_children())

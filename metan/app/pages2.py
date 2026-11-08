@@ -259,13 +259,19 @@ class OptimizePage(Page):
         self.apply_btn.grid(row=2, column=0, sticky="w", pady=(8, 0))
         self._side = None
         top.bind("<Configure>", self._arrange, add="+")
-        right.bind("<Configure>", lambda e: self.result.configure(
-            wraplength=max(200, e.width - 10)), add="+")
+        self._wrap = None
+        right.bind("<Configure>", self._rewrap, add="+")
         self._arrange()
         self.plot = Plot(self, app, figsize=(8, 3))
         self.plot.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
         self.grid_rowconfigure(2, weight=1)
         self.after(200, self._defaults)
+
+    def _rewrap(self, e):
+        w = max(200, e.width - 10)
+        if self._wrap is None or abs(w - self._wrap) > 20:
+            self._wrap = w
+            self.result.configure(wraplength=w)
 
     def _arrange(self, _e=None):
         """Таблица справа от списка параметров, а на узком экране - под ним."""
@@ -554,8 +560,10 @@ class GridCheckPage(Page):
             "смысла. Предел итераций на каждой сетке берётся по Nуст.", 12,
             anchor="w", justify="left", wraplength=900)
         self.verdict.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        self.verdict.bind("<Configure>", lambda e: self.verdict.configure(
-            wraplength=max(300, e.width - 10)), add="+")
+        # перенос строк - по ширине страницы (не самой подписи: иначе
+        # изменение переноса снова меняет её размер - бесконечный цикл)
+        self._wrap = None
+        self.bind("<Configure>", self._rewrap, add="+")
         self.plot = Plot(self, app, figsize=(8, 3.5))
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.table = Table(self, app, ["α", "Величина", "Сетка 1", "Сетка 2"],
@@ -588,6 +596,12 @@ class GridCheckPage(Page):
             self.refresh()
 
         self.app.run_task(job, done, "Проверка на мелких сетках")
+
+    def _rewrap(self, e):
+        w = max(300, e.width - 20)
+        if self._wrap is None or abs(w - self._wrap) > 20:
+            self._wrap = w
+            self.verdict.configure(wraplength=w)
 
     @staticmethod
     def _grid_name(p):

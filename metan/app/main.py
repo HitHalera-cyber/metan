@@ -458,6 +458,7 @@ class App(ctk.CTk):
                 self.busy = False
                 self.run_btn.configure(state="normal")
                 self.stop_btn.grid_remove()
+                self.after(200, self._update_continue)
                 if msg[0] == "done":
                     self.pbar.set(1)
                     self.prog_lbl.configure(text="Готово")

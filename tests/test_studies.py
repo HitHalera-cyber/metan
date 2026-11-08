@@ -73,3 +73,18 @@ def test_cell_peclet():
     pe = analysis.cell_peclet(r.variants[0])
     assert pe and 0 < pe["median"] <= pe["p95"] <= pe["max"]
     assert 0 <= pe["share2"] <= 1
+
+
+def test_resume_bit_identical():
+    a = Solver(Params(NMAX=300)).run().variants[0]
+    b = Solver(Params(NMAX=2000), resume=a).run().variants[0]
+    c = Solver(Params(NMAX=2300)).run().variants[0]
+    assert b.NITER == c.NITER and np.array_equal(b.A, c.A)
+
+
+def test_gci_rows():
+    g = studies.grid_check(small(NVARM=1, NMAX=60, STOP_TOL=0), levels=3)
+    rows = g.gci()
+    assert {r["name"] for r in rows} == {"φк", "Tвых, K"}
+    assert all(r["kind"] in ("monotone", "oscillating", "diverging",
+                             "converged") for r in rows)
