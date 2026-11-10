@@ -78,6 +78,7 @@ class Sidebar(ctk.CTkFrame):
                 if name == "JN":
                     self._pe_gen = 0
                     r = self._iters_block(body, r)
+                    r = self._re_block(body, r)
             if key == "mode":
                 self.alfa_lbl = label(body, "", 11, wraplength=280,
                                       justify="left")
@@ -94,6 +95,10 @@ class Sidebar(ctk.CTkFrame):
                     var=self.snap_var)
             self.sections[key] = (head, body)
         self._multi_toggle()
+        if "TMODEL" in self.vars:
+            self.vars["TMODEL"].trace_add("write",
+                                          lambda *a: self._tmodel_toggle())
+            self._tmodel_toggle()
         self.open_section("mode")
 
         # Справка по параметру (не прокручивается)
@@ -291,6 +296,89 @@ class Sidebar(ctk.CTkFrame):
         self._node_cost = None
         return r + 1
 
+    RE_HELP = dict(
+        label="Число Рейнольдса камеры", sym="Reт", unit="",
+        short="Критерий устойчивости течения; считается само",
+        help="Reт = 4·ṁ / (π·Dк·μ̄т) - отношение сил инерции к силам "
+             "турбулентной вязкости в камере (ṁ - расход, Dк - диаметр "
+             "камеры, μ̄т - средняя турбулентная вязкость за предкамерой).\n\n"
+             "Зачем: каждое уравнение схемы (разности против потока) "
+             "сходится на любой сетке, но связанная система - только если "
+             "вязкость достаточно гасит возмущения. Чем больше Reт, тем "
+             "сильнее течение в зоне обратных токов за уступом склонно "
+             "колебаться. Выше предела установившегося решения нет - сколько "
+             "ни увеличивай число итераций.\n\n"
+             "Пределы (по расчётам с уменьшенной вязкостью при pк 0.5–2 МПа, "
+             "α 0.8–1, Dк 24–30 мм, сетках 46×22 и 100×44): Reт ≤ 75 - "
+             "устойчиво; 75–130 - граница, решение может не установиться "
+             "(на мелкой сетке граница ниже); ≥ 130 - неустойчиво.\n\n"
+             "Алгебраическая модель вязкости программы даёт Reт ≈ 30–50 при "
+             "любом давлении - запас в 2–3 раза. Reт растёт при узкой щели "
+             "окислителя δок (больше скорость струи) и малом Dк.\n\n"
+             "Как считается: до расчёта - по 100 итерациям на сетке 46×22 "
+             "той же камеры (точность 2–15 %), после расчёта - по полю "
+             "расчёта.\n\n"
+             "Второе условие устойчивости - гладкая модель температуры: "
+             "у исходной модели скачок поправочного множителя при αм = 0.8 "
+             "раскачивает решение при α ≈ 0.7–0.85 и 1.1–1.2 независимо от "
+             "Reт; у сглаженной с шириной w ≥ 0.4 и у равновесной этого нет.")
+
+    def _re_block(self, parent, r):
+        fr = tk.Frame(parent, bd=0, highlightthickness=0)
+        self._reg(fr, bg="panel")
+        fr.grid(row=r, column=0, sticky="ew", pady=(6, 0))
+        fr.grid_columnconfigure(0, weight=1)
+        lab = tk.Label(fr, text="Число Рейнольдса камеры  Reт",
+                       font=self.f_lab, anchor="w", justify="left",
+                       wraplength=150)
+        self._reg(lab, bg="panel", fg="fg", wrap=150)
+        lab.grid(row=0, column=0, sticky="w", padx=(6, 6), pady=3)
+        self.re_val = ctk.CTkLabel(fr, text="…", width=90, height=30,
+                                   corner_radius=8, fg_color=c("card"),
+                                   font=font(13, "bold", mono=True))
+        self.re_val.grid(row=0, column=1, sticky="e", pady=3)
+        sp = tk.Label(fr, width=6)
+        self._reg(sp, bg="panel")
+        sp.grid(row=0, column=2)
+        lim = tk.Label(fr, text="Критерий устойчивости течения. Reт ≤ 75 - "
+                       "устойчиво;  75…130 - граница, может не установиться;  "
+                       "≥ 130 - неустойчиво", font=self.f_unit,
+                       anchor="w", justify="left", wraplength=270)
+        self._reg(lim, bg="panel", fg="muted", wrap=270)
+        lim.grid(row=1, column=0, columnspan=3, sticky="w", padx=6,
+                 pady=(0, 2))
+        self.re_note = tk.Label(fr, text="", font=self.f_unit, anchor="w",
+                                justify="left", wraplength=270)
+        self._reg(self.re_note, bg="panel", fg="muted", wrap=270)
+        self.re_note.grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
+        for w in (fr, lab, self.re_val, self.re_note, lim):
+            w.bind("<Button-3>", lambda e: self.show_help("_re"), add="+")
+            w.bind("<Button-2>", lambda e: self.show_help("_re"), add="+")
+        self.rows["_re"] = fr
+        self.meta["_re"] = self.RE_HELP
+        self._re = None
+        return r + 1
+
+    def show_reynolds(self, re=None, exact=False):
+        """Reт и вывод об устойчивости (re - оценка или по расчёту)."""
+        from .. import convergence
+        if re is not None:
+            self._re = (re, exact)
+        if not self._re or not self._re[0] == self._re[0]:
+            self.re_val.configure(text="—", text_color=c("muted"))
+            self.re_note.configure(text="")
+            return
+        re, exact = self._re
+        st = convergence.stability(re)
+        col = {"ok": "accent", "edge": "warn", "bad": "danger"}[st]
+        self.re_val.configure(text="%.0f" % re, text_color=c(col))
+        verdict = {"ok": "течение устойчиво",
+                   "edge": "на границе - решение может не установиться",
+                   "bad": "неустойчиво - решение не установится"}[st]
+        self.re_note.configure(text="%s: запас до предела 130 - %.1f раза; %s."
+                               % ("По расчёту" if exact else "Оценка до расчёта",
+                                  convergence.RE_UNSTABLE / re, verdict))
+
     def show_iters(self, est=None):
         """Nуст и запас K = Nит/Nуст (est - из convergence.estimate)."""
         if est is not None:
@@ -337,6 +425,7 @@ class Sidebar(ctk.CTkFrame):
         self._pe_gen += 1
         gen = self._pe_gen
         self.it_val.configure(text="…", text_color=c("muted"))
+        self.re_val.configure(text="…", text_color=c("muted"))
 
         def work():
             import time as _t
@@ -347,6 +436,10 @@ class Sidebar(ctk.CTkFrame):
                 est = convergence.estimate(prm)
             except Exception:
                 est = None
+            try:
+                re = convergence.reynolds(prm)
+            except Exception:
+                re = float("nan")
             if self._node_cost is None:
                 # скорость этого компьютера: секунд на узел·итерацию
                 try:
@@ -355,7 +448,7 @@ class Sidebar(ctk.CTkFrame):
                     self._node_cost = (_t.perf_counter() - t0) / (300 * 46 * 22)
                 except Exception:
                     pass
-            box.append(est)
+            box.append((est, re))
 
         # Tk нельзя трогать из фонового потока: результат забирает таймер
         box = []
@@ -364,7 +457,8 @@ class Sidebar(ctk.CTkFrame):
             if gen != self._pe_gen:
                 return
             if box:
-                self.show_iters(box[0])
+                self.show_iters(box[0][0])
+                self.show_reynolds(box[0][1])
             else:
                 self.after(60, check)
         threading.Thread(target=work, daemon=True).start()
@@ -377,6 +471,13 @@ class Sidebar(ctk.CTkFrame):
         cb.grid(row=r, column=0, sticky="w", padx=6, pady=(2, 4))
         self._multi_rows_at = r + 1
         return r + 1
+
+    def _tmodel_toggle(self):
+        """Ширина сглаживания w видна только у сглаженной модели."""
+        if "TSMOOTH" in self.rows:
+            on = self.vars["TMODEL"].get() == CHOICES["TMODEL"]["1"]
+            (self.rows["TSMOOTH"].grid if on else
+             self.rows["TSMOOTH"].grid_remove)()
 
     def _multi_toggle(self):
         on = self.multi_var.get()

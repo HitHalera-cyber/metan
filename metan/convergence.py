@@ -112,6 +112,56 @@ def estimate(params, eps=1e-3):
                 n0=float(n0))
 
 
+# ----------------------------------------------------------------------
+# Турбулентное число Рейнольдса камеры - критерий устойчивости
+#
+#     Reт = 4·ṁ / (π·Dк·μ̄т),
+#
+# μ̄т - средняя турбулентная вязкость в камере (за предкамерой). Чем
+# меньше вязкость, тем сильнее течение в зоне обратных токов за уступом
+# склонно колебаться; выше предела стационарное решение не находится,
+# сколько ни увеличивай число итераций. Пределы - по расчётам с вязкостью,
+# уменьшенной в 1…3.3 раза (pк 0.5…2 МПа, α 0.8…1, Dк 24…30 мм, сетки
+# 46×22 и 100×44): устанавливалось при Reт ≤ 76…102, не устанавливалось
+# при Reт ≥ 96…133. Алгебраическая вязкость программы даёт Reт ≈ 30…50
+# при любом давлении (вязкость пропорциональна плотности).
+RE_STABLE, RE_UNSTABLE = 75.0, 130.0
+
+
+def reynolds_of(v, params):
+    """Reт по полю расчёта (VariantResult)."""
+    from .kernels import NMU
+    g = v.grid
+    mu = v.A[g["IC2"] + 1:g["IN"], 2:g["JN"], NMU]
+    mu = mu[mu > 0]
+    ms = v.values.get("Ms", 0.0)
+    if mu.size == 0 or not ms:
+        return float("nan")
+    return float(4 * ms / (np.pi * params.DKS * 1e-3 * mu.mean()))
+
+
+def reynolds(params, iters=100):
+    """Оценка Reт до расчёта: 100 итераций на сетке 46×22 той же камеры
+    (доли секунды; отличие от установившегося значения 2…15 %)."""
+    import dataclasses
+    from .solver import Solver
+    q = dataclasses.replace(params, NVARM=1, NMAX=iters, STOP_TOL=0,
+                            IN=min(params.IN, 46), JN=min(params.JN, 22))
+    try:
+        q.validate()
+    except Exception:
+        q = dataclasses.replace(params, NVARM=1, NMAX=iters, STOP_TOL=0)
+    res = Solver(q, track_history=False).run()
+    return reynolds_of(res.variants[0], q)
+
+
+def stability(re):
+    """'ok' / 'edge' / 'bad' по Reт."""
+    if not re == re:
+        return None
+    return "ok" if re <= RE_STABLE else ("edge" if re < RE_UNSTABLE else "bad")
+
+
 FIT_C, FIT_P, SAFETY = 23.9, 0.703, 1.15
 # Поправка на модель температуры: формула подобрана для исходной модели;
 # сглаженная сходится так же, равновесная - в 1.16-1.37 раза дольше

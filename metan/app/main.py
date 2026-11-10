@@ -548,6 +548,13 @@ class App(ctk.CTk):
                     " Расходимость в %d вариантах!" % bad if bad else "",
                     " Не установилось вариантов: %d - «Продолжить» досчитает "
                     "ещё Nит итераций." % unsettled if unsettled else ""))
+            try:
+                from .. import convergence
+                v = res.variants[min(self.variant_idx, len(res.variants) - 1)]
+                self.sidebar.show_reynolds(convergence.reynolds_of(v, res.params),
+                                           exact=True)
+            except Exception:
+                pass
             self.page.refresh()
             self.after(150, self._update_continue)
 

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from metan import Params
+from metan import Params, Solver
 from metan.fortran_format import fmt_e, fmt_f, fmt_i
 
 
@@ -87,3 +87,22 @@ def test_auto_stop():
     assert v.settled is True and 600 < v.NITER < 3000
     f = Solver(Params.fortran(NVARM=1), track_history=False).run().variants[0]
     assert f.settled is None and f.NITER == 1000
+
+
+def test_reynolds_criterion():
+    from metan import convergence
+    p = Params(ALFA=1.0, NVARM=1)
+    est = convergence.reynolds(p)
+    v = Solver(p).run().variants[0]
+    exact = convergence.reynolds_of(v, p)
+    assert 30 < exact < 60
+    assert abs(est - exact) / exact < 0.2
+    assert convergence.stability(exact) == "ok"
+    assert convergence.stability(100) == "edge"
+    assert convergence.stability(150) == "bad"
+
+
+def test_smoothed_model_settles_at_alpha_08():
+    """При w = 0.4 сглаженная модель устанавливается и при α = 0.8."""
+    v = Solver(Params(ALFA=0.8, NVARM=1, TMODEL=1, NMAX=4000)).run().variants[0]
+    assert v.settled
