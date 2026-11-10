@@ -81,6 +81,7 @@ class App(ctk.CTk):
         self.variant_idx = 0
         self.runs = []
         self.series = self.opt = self.gridcheck = None
+        self.gridstudy = None
         self.preview, self.preview_msgs = None, []
         self.outdir = tk.StringVar(value=self.cfg.get("outdir")
                                    or config.default_outdir())

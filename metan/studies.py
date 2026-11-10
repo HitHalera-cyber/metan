@@ -269,6 +269,93 @@ class GridCheck:
         return out
 
 
+def gci3(f3, f2, f1, r):
+    """GCI по трём сеткам с отношением шагов r (f1 - самая мелкая)."""
+    e21, e32 = f1 - f2, f2 - f3
+    out = dict(f3=f3, f2=f2, f1=f1, p=np.nan, ext=np.nan, gci=np.nan)
+    scale = max(abs(f1), 1e-12)
+    if abs(e21) < 1e-6 * scale:
+        out.update(kind="converged", gci=0.0, ext=f1)
+    elif max(abs(e21), abs(e32)) < 0.01 * scale and (
+            e32 * e21 < 0 or abs(e32) <= abs(e21)):
+        # разности меньше 1 % и не убывают закономерно - это уже шум
+        # итераций, а не влияние сетки
+        out.update(kind="noise",
+                   gci=1.25 * max(abs(e21), abs(e32)) / scale * 100)
+    elif e32 * e21 < 0:
+        out.update(kind="oscillating", gci=1.25 * abs(e21) / scale * 100)
+    elif abs(e32) <= abs(e21):
+        out.update(kind="diverging", gci=3.0 * abs(e21) / scale * 100)
+    else:
+        p = np.log(abs(e32 / e21)) / np.log(r)
+        out.update(kind="monotone", p=p, ext=f1 + e21 / (r ** p - 1),
+                   gci=1.25 * abs(e21 / f1) / (r ** p - 1) * 100)
+    return out
+
+
+@dataclass
+class GridStudy:
+    """Сеточное исследование: сетки start·ratio^k до GCI < target."""
+    params: list            # Params на каждой сетке
+    results: list           # Results на каждой сетке
+    gcis: list              # GCI по каждой тройке соседних сеток
+    metric: str             # "φк" или "φβ"
+    ratio: float
+    target: float
+
+    def value(self, v):
+        return v.extra.get("FIbeta", np.nan) if self.metric == "φβ" \
+            else v.fkomp
+
+    @property
+    def done(self):
+        return bool(self.gcis) and self.gcis[-1]["kind"] in (
+            "monotone", "converged", "noise") and \
+            self.gcis[-1]["gci"] < self.target
+
+
+def grid_study(params, start=(100, 44), ratio=2 ** 0.5, levels=5,
+               target=2.0, progress=None, cancel=None):
+    """Сетки 100×44, 141×62, 200×88, 283×124, 400×176 (шаг меньше в √2
+    раз): после каждой, начиная с третьей, - GCI по трём последним; стоп,
+    когда GCI < target %. При равновесном горении φк ≈ 1 на любой сетке,
+    поэтому сходимость оценивается по φβ. Первые три сетки считаются
+    параллельно, остальные - по одной."""
+    params = dataclasses.replace(params.resolved(), NVARM=1, GRID_AUTO=1)
+    metric = "φβ" if int(getattr(params, "COMB", 0)) == 2 else "φк"
+    ps = []
+    for k in range(levels):
+        q = dataclasses.replace(params, IN=int(round(start[0] * ratio ** k)),
+                                JN=int(round(start[1] * ratio ** k)))
+        ps.append(_limit_iters(q))
+    study = GridStudy([], [], [], metric, ratio, target)
+    state = {}
+
+    def run(idx, p):
+        def prog(nvar, nvarm, niter, nmax):
+            if progress:
+                state[idx] = niter / nmax
+                progress(idx, levels, state)
+        return Solver(p, progress=prog, cancel=cancel,
+                      track_history=True).run()
+
+    with ThreadPoolExecutor(3) as ex:
+        first = list(ex.map(lambda a: run(*a), enumerate(ps[:3])))
+    for k in range(levels):
+        res = first[k] if k < 3 else run(k, ps[k])
+        study.params.append(ps[k])
+        study.results.append(res)
+        if len(study.results) >= 3:
+            f = [study.value(r.variants[0]) for r in study.results[-3:]]
+            g = gci3(f[0], f[1], f[2], ratio)
+            g["grids"] = tuple("%d×%d" % (q.IN, q.JN)
+                               for q in study.params[-3:])
+            study.gcis.append(g)
+            if study.done:
+                break
+    return study
+
+
 def _limit_iters(p):
     """Предел итераций с запасом по оценке Nуст (решатель сам остановится
     раньше, когда решение установится)."""

@@ -9,6 +9,7 @@ from matplotlib.figure import Figure
 from . import __version__
 from . import notation, plotting
 from .analysis import exit_summary
+from .refined import COMB_NAMES, TURB_NAMES, temperature_mode
 from .kernels import NF, NT
 from .params import Params
 
@@ -105,11 +106,20 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
             continue
         if name in ("DALFA", "NVARM") and p.NVARM == 1:
             continue
+        if name == "TSMOOTH" and temperature_mode(p) != 1:
+            continue
+        if name == "TURB":
+            continue
+        if name == "EDM_A" and p.COMB != 1:
+            continue
         rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
-    rows.append(("Модель температуры", "", {0: "исходная (как в Фортране)",
-                                            1: "сглаженная",
-                                            2: "равновесная (термодинамический "
-                                               "расчёт)"}.get(p.TMODEL, "?"), ""))
+    rows.append(("Модель температуры", "", {
+        0: "исходная (как в Фортране)", 1: "сглаженная",
+        2: "равновесная (термодинамический расчёт)",
+        3: "равновесная × доля сгоревшего (задаётся моделью EDM)"}.get(
+            temperature_mode(p), "?"), ""))
+    rows.append(("Модель горения", "", COMB_NAMES[p.COMB], ""))
+    rows.append(("Модель турбулентности", "", TURB_NAMES[p.TURB], ""))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
 

@@ -20,7 +20,10 @@ from .widgets import Canvas, button, check, font, label, option, _scaling
 # подписи вариантов в выпадающих списках
 CHOICES = {"NCORD": {"2": "осесимметричная", "1": "плоская"},
            "TMODEL": {"0": "исходная", "1": "сглаженная",
-                      "2": "равновесная"}}
+                      "2": "равновесная"},
+           "COMB": {"0": "мгновенная", "1": "EDM",
+                    "2": "равновесная"},
+           "TURB": {"0": "алгебраическая", "1": "k–ε"}}
 
 HELP_HINT = ("Щёлкните правой кнопкой мыши по параметру, чтобы увидеть, "
              "что он означает.")
@@ -95,10 +98,11 @@ class Sidebar(ctk.CTkFrame):
                     var=self.snap_var)
             self.sections[key] = (head, body)
         self._multi_toggle()
-        if "TMODEL" in self.vars:
-            self.vars["TMODEL"].trace_add("write",
+        for name in ("TMODEL", "COMB"):
+            if name in self.vars:
+                self.vars[name].trace_add("write",
                                           lambda *a: self._tmodel_toggle())
-            self._tmodel_toggle()
+        self._tmodel_toggle()
         self.open_section("mode")
 
         # Справка по параметру (не прокручивается)
@@ -198,7 +202,8 @@ class Sidebar(ctk.CTkFrame):
         if kind:
             names = CHOICES.get(name, {})
             w = option(fr, [names.get(str(x), str(x)) for x in kind],
-                       variable=v, width=150 if names else 96)
+                       variable=v, width=(130 if name in ("COMB", "TURB") else 150)
+                       if names else 96)
             w.grid(row=0, column=1, sticky="e", pady=3)
         else:
             w = ctk.CTkEntry(fr, textvariable=v, width=90, height=30,
@@ -399,6 +404,11 @@ class Sidebar(ctk.CTkFrame):
         verdict = ("успеет установиться" if k >= 1 else
                    "может не успеть" if k >= 0.5 else "не успеет")
         txt = "Предел Nит = %d → запас K = %.2f: %s." % (nmax, k, verdict)
+        if "TURB" in self.vars and self.vars["TURB"].get() == \
+                CHOICES["TURB"]["1"]:
+            txt = ("С моделью k–ε решение не устанавливается (Reт выше "
+                   "предела): считается Nит итераций, поля осредняются по "
+                   "последним 30 %. ") + txt
         try:
             nx = int(float(self.vars["IN"].get()))
             nr = int(float(self.vars["JN"].get()))
@@ -473,11 +483,19 @@ class Sidebar(ctk.CTkFrame):
         return r + 1
 
     def _tmodel_toggle(self):
-        """Ширина сглаживания w видна только у сглаженной модели."""
-        if "TSMOOTH" in self.rows:
-            on = self.vars["TMODEL"].get() == CHOICES["TMODEL"]["1"]
-            (self.rows["TSMOOTH"].grid if on else
-             self.rows["TSMOOTH"].grid_remove)()
+        """Ширина сглаживания w - только у сглаженной модели температуры;
+        модель температуры - только при мгновенном горении (иначе её задаёт
+        модель горения); постоянная A - только у EDM."""
+        def show(name, on):
+            if name in self.rows:
+                (self.rows[name].grid if on else self.rows[name].grid_remove)()
+        comb = self.vars["COMB"].get() if "COMB" in self.vars else \
+            CHOICES["COMB"]["0"]
+        instant = comb == CHOICES["COMB"]["0"]
+        show("TMODEL", instant)
+        show("TSMOOTH", instant and "TMODEL" in self.vars
+             and self.vars["TMODEL"].get() == CHOICES["TMODEL"]["1"])
+        show("EDM_A", comb == CHOICES["COMB"]["1"])
 
     def _multi_toggle(self):
         on = self.multi_var.get()

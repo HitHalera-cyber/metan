@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import kernels as K
+from . import refined
 from .fortran_format import fmt_e, fmt_f, fmt_i
 from .kernels import (NW, NF, NMFU1, NMOX1, NMPR1, NMPR2, NMDF, NMOX2,
                       NMFU2, NMU1, NRO3, NT, NV1, NMU2, N3)
@@ -113,6 +114,7 @@ class Solver:
         self.keep_partial = keep_partial
         self.resume = resume
         self._stopped = False
+        self._ref = None
         self._resume_ok = False
         self.F = np.float32 if self.p.precision == "float32" else np.float64
 
@@ -428,6 +430,19 @@ class Solver:
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
         self._ttab = self._temperature_table()
+        tmode = refined.temperature_mode(p)
+        react, w_relax = 1, 1.0
+        self._ref = None
+        if refined.active(p):
+            # уточнённые модели горения и турбулентности (metan/refined)
+            self._ref = refined.Refined(self)
+            if self._resume_ok:
+                self._ref.restore(getattr(self.resume, "refined_state", None))
+            if self._ref.comb != 0:
+                react = 0
+            if self._ref.turb == 1:
+                w_relax = refined.RELAX_W
+        ref = self._ref
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -442,7 +457,9 @@ class Solver:
                      self.IN, self.JN, self.JA, self.JZ, self.JZ1, self.JA1,
                      self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
                      self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
-                     int(p.TMODEL), float(p.TSMOOTH), *self._ttab)
+                     tmode, float(p.TSMOOTH), *self._ttab)
+            if ref is not None:
+                ref.after_viscos()
             self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
                                   self.IMAX, self.VS, self.FKS, self.UKS,
                                   self.INM, self.JNM, self.JA3, self.JC,
@@ -452,6 +469,8 @@ class Solver:
                      self.AE, self.AW, self.AN, self.AS,
                      self.AE1, self.AW1, self.AN1, self.AS1,
                      self.JNM, self.JA3, self.JC, self.IC, self.IC2)
+            if ref is not None:
+                ref.after_convec()
             K.eqn(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
                   self.BE, self.BW, self.BN, self.BS,
                   self.AE, self.AW, self.AN, self.AS,
@@ -461,7 +480,9 @@ class Solver:
                   self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
                   self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
                   self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-                  self.IC2 + 1, float(p.OMEGA))
+                  self.IC2 + 1, float(p.OMEGA), react, w_relax)
+            if ref is not None:
+                ref.after_eqn()
             if self.track_history:
                 self._record(prev)
             if (snap_step and self.NITER <= p.NMAX
@@ -501,7 +522,7 @@ class Solver:
         """Таблица равновесной температуры T(f) для TMODEL = 2 (по давлению в
         камере и энтальпии горючего; строится один раз, ~1 с)."""
         p = self.p
-        if int(p.TMODEL) != 2:
+        if refined.temperature_mode(p) not in (2, 3):
             z = np.zeros(2)
             return (z, z + 1., z)
         key = (float(p.P), float(p.H))
@@ -744,6 +765,8 @@ class Solver:
         out.append(line)
 
         self._iterate()
+        if self._ref is not None:
+            self._ref.end()
         out.append(" " * 25 + "NITER=" + fmt_i(self.NITER, 4))
 
         if self.p.model == "original":
@@ -786,6 +809,11 @@ class Solver:
             stopped=self._stopped,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
+        if self._ref is not None:
+            v = res.variants[-1]
+            v.extra["averaged"] = self._ref.averaged
+            v.extra["model"] = refined.describe(self.p)
+            v.refined_state = self._ref.state()
 
     # ------------------------------------------------------------------
     @staticmethod

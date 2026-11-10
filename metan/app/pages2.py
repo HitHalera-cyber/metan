@@ -1,5 +1,6 @@
 """Страницы исследований: серии, подбор, сравнение, проверка сетки, протокол."""
 
+import dataclasses
 import os
 import pickle
 import subprocess
@@ -544,15 +545,22 @@ class GridCheckPage(Page):
 
     def __init__(self, master, app):
         super().__init__(master, app)
-        tb = self.toolbar()
-        label(tb, "Сеток", 12, muted=True).pack(side="left")
+        tb = self.tb = self.toolbar()
+        self.kind = tk.StringVar(value=self.KINDS[0])
+        option(tb, list(self.KINDS), lambda _v: self._kind_changed(),
+               self.kind, 300).pack(side="left", padx=(0, 14))
+        self.opts = ctk.CTkFrame(tb, fg_color="transparent")
+        self.opts.pack(side="left")
+        label(self.opts, "Сеток", 12, muted=True).pack(side="left")
         self.levels = tk.StringVar(value="3 (индекс GCI)")
-        option(tb, ["2", "3 (индекс GCI)"], None, self.levels, 150).pack(
+        option(self.opts, ["2", "3 (индекс GCI)"], None, self.levels, 150).pack(
             side="left", padx=(6, 14))
-        label(tb, "каждый интервал делится на", 12, muted=True).pack(side="left")
+        label(self.opts, "интервал делится на", 12, muted=True).pack(side="left")
         self.factor = tk.StringVar(value="2")
-        option(tb, ["2", "3"], None, self.factor, 60).pack(side="left", padx=6)
+        option(self.opts, ["2", "3"], None, self.factor, 60).pack(side="left",
+                                                                 padx=6)
         button(tb, "Проверить", self.run, primary=True, width=130).pack(side="right")
+        self.last = None        # "check" / "study" - что показывать
         self.verdict = label(
             self, "Тот же расчёт на всё более мелких сетках. По трём сеткам "
             "считается индекс сеточной сходимости GCI - насколько ещё может "
@@ -572,12 +580,35 @@ class GridCheckPage(Page):
         self.grid_rowconfigure(2, weight=3, minsize=200)
         self.grid_rowconfigure(3, weight=1)
 
+    KINDS = ("Сгущение текущей сетки ×2 / ×3",
+             "Исследование от 100×44 до GCI < 2 %")
+
+    def _kind_changed(self):
+        # ряд кнопок раскладывает Flow (place), поэтому не pack_forget
+        if self.kind.get() == self.KINDS[0]:
+            if self.opts not in self.tb._spec:
+                self.opts.pack(side="left")
+                self.tb._schedule()
+        else:
+            self.tb.remove(self.opts)
+        if self.kind.get() == self.KINDS[1] and \
+                getattr(self.app, "gridstudy", None) is None:
+            self.verdict.configure(text=(
+                "Расчёт на сетках 100×44, 141×62, 200×88, 283×124, 400×176 "
+                "(шаг меньше в √2 раз), пока индекс сеточной сходимости GCI "
+                "по трём последним сеткам не станет меньше 2 % или разности "
+                "между сетками - меньше 1 % (уровень шума итераций). При "
+                "равновесном горении φк ≈ 1 на любой сетке, поэтому оценка "
+                "по φβ."))
+
     def run(self):
         try:
             prm = self.app.sidebar.params()
         except ValueError as e:
             messagebox.showerror("Ошибка в параметрах", str(e))
             return
+        if self.kind.get() == self.KINDS[1]:
+            return self.run_study(prm)
         fac = int(self.factor.get())
         lev = 3 if self.levels.get().startswith("3") else 2
 
@@ -593,9 +624,37 @@ class GridCheckPage(Page):
 
         def done(res):
             self.app.gridcheck = res
+            self.last = "check"
             self.refresh()
 
         self.app.run_task(job, done, "Проверка на мелких сетках")
+
+    def run_study(self, prm):
+        if prm.NVARM > 1:
+            prm = dataclasses.replace(prm, NVARM=1)
+        if not messagebox.askyesno(
+                "Сеточное исследование",
+                "Расчёт на сетках 100×44, 141×62, 200×88, 283×124, 400×176 "
+                "(шаг меньше в √2 раз), пока GCI по трём последним сеткам не "
+                "станет меньше 2 %%. Считается один вариант (α = %.2f).\n\n"
+                "Это может занять от нескольких минут до получаса. "
+                "Продолжить?" % prm.ALFA):
+            return
+
+        def job(progress, cancel):
+            def prog(idx, levels, state):
+                done_ = sum(state.values())
+                progress(min(1., done_ / levels), "Сетки: " + ", ".join(
+                    "%d: %.0f%%" % (k + 1, v * 100)
+                    for k, v in sorted(state.items())))
+            return studies.grid_study(prm, progress=prog, cancel=cancel)
+
+        def done(res):
+            self.app.gridstudy = res
+            self.last = "study"
+            self.refresh()
+
+        self.app.run_task(job, done, "Сеточное исследование")
 
     def _rewrap(self, e):
         w = max(300, e.width - 20)
@@ -607,7 +666,76 @@ class GridCheckPage(Page):
     def _grid_name(p):
         return "%d×%d" % (p.IN, p.JN)
 
+    def refresh_study(self):
+        st = self.app.gridstudy
+        m = st.metric
+        names = ["%d×%d" % (q.IN, q.JN) for q in st.params]
+        self.table.set_columns(["Сетка", m, "Tвых, K", "N", "Состояние",
+                                "GCI по трём, %", "Вывод"])
+        kinds = {"monotone": "сходится", "oscillating": "колеблется",
+                 "diverging": "разности не убывают",
+                 "converged": "не зависит от сетки",
+                 "noise": "разности < 1 % (шум)"}
+        rows, bad = [], []
+        for k, (nm, res) in enumerate(zip(names, st.results)):
+            v = res.variants[0]
+            g = st.gcis[k - 2] if k >= 2 else None
+            rows.append([nm, "%.4f" % st.value(v),
+                         "%.0f" % analysis.exit_summary(v)["T"], str(v.NITER),
+                         "расходится" if v.diverged else
+                         ("не уст." if v.settled is False else "установился"),
+                         "—" if g is None else "%.2f" % g["gci"],
+                         "—" if g is None else kinds[g["kind"]]])
+            bad.append(v.diverged or v.settled is False)
+        self.table.set_rows(rows, bad)
+        txt = "Сеточное исследование: %s. " % " → ".join(names)
+        if st.gcis:
+            g = st.gcis[-1]
+            txt += "Последние три сетки: GCI(%s) = %.2f %% (%s)" % (
+                m, g["gci"], kinds[g["kind"]])
+            if g["ext"] == g["ext"] and g["kind"] == "monotone":
+                txt += ", %s на бесконечно мелкой сетке ≈ %.4f" % (m, g["ext"])
+            txt += ". "
+            txt += ("Сетки %s достаточно: сгущать дальше нет смысла."
+                    % names[-2] if st.done else
+                    "GCI ≥ 2 % и на сетке 400×176 - результат ещё зависит от "
+                    "сетки.")
+        if any(bad):
+            txt += " Красные строки - решение не установилось или разошлось."
+        self.verdict.configure(text=txt)
+        f = self.plot.fig
+        f.clear()
+        ax = f.add_subplot(121)
+        n_cells = [q.IN * q.JN for q in st.params]
+        vals = [st.value(r.variants[0]) for r in st.results]
+        ax.plot(n_cells, vals, "o-", color=plotting.THEMES[self.app.mode]
+                ["series"][0], lw=1.8)
+        if st.gcis and st.gcis[-1]["ext"] == st.gcis[-1]["ext"] and \
+                st.gcis[-1]["kind"] == "monotone":
+            ax.axhline(st.gcis[-1]["ext"], ls="--", lw=1, color="0.5",
+                       label="предел h → 0")
+            ax.legend(fontsize=8)
+        ax.set_xscale("log")
+        ax.set_xlabel("число узлов Nx·Nr")
+        ax.set_ylabel(m)
+        ax.grid(True, alpha=0.25)
+        ax.set_title("%s в зависимости от сетки" % m, fontsize=11)
+        ax2 = f.add_subplot(122)
+        cols = plotting.THEMES[self.app.mode]["series"]
+        for k, (res, nm) in enumerate(zip(st.results, names)):
+            v = res.variants[0]
+            r, T = analysis.radial_profile(v, NT, v.grid["IN"])
+            ax2.plot(r * 1000, T, color=cols[k % len(cols)], lw=1.5, label=nm)
+        ax2.set_xlabel("r, мм")
+        ax2.set_ylabel("T на выходе, K")
+        ax2.grid(True, alpha=0.25)
+        ax2.legend(fontsize=8)
+        ax2.set_title("Профиль T на выходе", fontsize=11)
+        self.plot.show()
+
     def refresh(self):
+        if self.last == "study" and getattr(self.app, "gridstudy", None):
+            return self.refresh_study()
         g = self.app.gridcheck
         if g is None:
             self.plot.message("Нажмите «Проверить»")

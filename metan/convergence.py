@@ -107,7 +107,8 @@ def estimate(params, eps=1e-3):
     if rgs >= 1:
         return dict(rho=rgs, n_req=float("inf"))
     n0 = np.log(eps) / np.log(rgs)
-    k = MODEL_FACTOR.get(int(getattr(params, "TMODEL", 0)), 1.0)
+    from .refined import temperature_mode
+    k = MODEL_FACTOR.get(temperature_mode(params), 1.0)
     return dict(rho=rgs, n_req=float(FIT_C * SAFETY * k * n0 ** FIT_P),
                 n0=float(n0))
 
@@ -167,4 +168,6 @@ FIT_C, FIT_P, SAFETY = 23.9, 0.703, 1.15
 # сглаженная сходится так же, равновесная - в 1.16-1.37 раза дольше
 # (сетки 46×22 … 150×60: 1479, 4092, 4337, 6443 итерации против 1222,
 # 2714, 2910, 5088).
-MODEL_FACTOR = {0: 1.0, 1: 1.0, 2: 1.35}
+# EDM и равновесное горение (46×22, α = 1) устанавливаются за 1142 и 1148
+# итераций - как равновесная температура, с запасом.
+MODEL_FACTOR = {0: 1.0, 1: 1.0, 2: 1.35, 3: 1.35}
