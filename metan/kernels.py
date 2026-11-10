@@ -87,24 +87,16 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
            IN, JN, JA, JZ, JZ1, JA1, JA2, JA3, JC, IC1, IC2,
            VINP, VINS, ROP, ROS, VINS1, TMODE, TW, TAB_T, TAB_CP, TAB_H):
     RL = 0.1
-    # DO 100: отрицательные концентрации -> 0
-    for K in range(3, 10):
-        for J in range(1, JN + 1):
-            IL = IMIN[J]
-            IM = IMAX[J] + 1
-            if J < JA1 and J > JA:
-                IL = IMIN[J] - 1
-            if J < JZ1 and J > JZ:
-                IL = IMIN[J] - 1
-            if J > JA2:
-                IL = IMIN[J] - 1
-            for I in range(IL, IM + 1):
-                if A[I, J, K] < 0.0:
-                    A[I, J, K] = 0.0
-    # DO 121: нормировка суммы массовых долей
+    # В оригинале - три прохода по узлам: DO 100 (отрицательные
+    # концентрации -> 0), DO 121 (нормировка) и DO 20 (температура и
+    # плотность). Все три используют только значения в самом узле, поэтому
+    # объединены в один проход с теми же диапазонами узлов для каждой
+    # части: результат тот же бит-в-бит. Вязкость - отдельным проходом
+    # после: в RK1 входит уже новая плотность в узле (1, 2).
     for J in range(1, JN + 1):
         IL = IMIN[J]
-        IM = IMAX[J] + 1
+        IM100 = IMAX[J] + 1          # DO 100
+        IM = IMAX[J] + 1             # DO 121, DO 20
         if J <= JC:
             IM = IN
         if J < JA1 and J > JA:
@@ -113,32 +105,24 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
             IL = IMIN[J] - 1
         if J > JA2:
             IL = IMIN[J] - 1
-        for I in range(IL, IM + 1):
+        for I in range(IL, max(IM, IM100) + 1):
+            if I <= IM100:
+                for K in range(3, 10):
+                    if A[I, J, K] < 0.0:
+                        A[I, J, K] = 0.0
+            if I > IM:
+                continue
             CM = (A[I, J, NMFU1] + A[I, J, NMFU2] + A[I, J, NMOX1]
                   + A[I, J, NMOX2] + A[I, J, NMPR1] + A[I, J, NMPR2]
                   + A[I, J, NMDF])
-            if CM <= 0.0:
-                continue
-            A[I, J, NMFU1] = A[I, J, NMFU1] / CM
-            A[I, J, NMFU2] = A[I, J, NMFU2] / CM
-            A[I, J, NMOX1] = A[I, J, NMOX1] / CM
-            A[I, J, NMOX2] = A[I, J, NMOX2] / CM
-            A[I, J, NMPR1] = A[I, J, NMPR1] / CM
-            A[I, J, NMPR2] = A[I, J, NMPR2] / CM
-            A[I, J, NMDF] = A[I, J, NMDF] / CM
-    # DO 20: температура и плотность
-    for J in range(1, JN + 1):
-        IL = IMIN[J]
-        IM = IMAX[J] + 1
-        if J <= JC:
-            IM = IN
-        if J < JA1 and J > JA:
-            IL = IMIN[J] - 1
-        if J < JZ1 and J > JZ:
-            IL = IMIN[J] - 1
-        if J > JA2:
-            IL = IMIN[J] - 1
-        for I in range(IL, IM + 1):
+            if CM > 0.0:
+                A[I, J, NMFU1] = A[I, J, NMFU1] / CM
+                A[I, J, NMFU2] = A[I, J, NMFU2] / CM
+                A[I, J, NMOX1] = A[I, J, NMOX1] / CM
+                A[I, J, NMOX2] = A[I, J, NMOX2] / CM
+                A[I, J, NMPR1] = A[I, J, NMPR1] / CM
+                A[I, J, NMPR2] = A[I, J, NMPR2] / CM
+                A[I, J, NMDF] = A[I, J, NMDF] / CM
             AZK = (A[I, J, NMPR1] + A[I, J, NMOX2] + A[I, J, NMDF]
                    + A[I, J, NMPR2] + A[I, J, NMFU2])
             ZOKD = AZK * 0.7966 + A[I, J, NMOX1]
@@ -360,6 +344,42 @@ def convec(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
 
 
 @jit
+def field_change(A, prev, KS, out):
+    """Для каждой величины KS[n]: out[n, 0] = max|A|, out[n, 1] =
+    max|A − prev| по всему полю (NaN, если он есть в поле, - как у
+    numpy.max), затем prev = A. Заменяет поэлементные операции numpy без
+    промежуточных массивов; значения те же (максимум не зависит от
+    порядка обхода)."""
+    NI, NJ = A.shape[0], A.shape[1]
+    for n in range(KS.shape[0]):
+        k = KS[n]
+        m = 0.
+        d = 0.
+        nx = False
+        ny = False
+        for J in range(NJ):
+            for I in range(NI):
+                a = A[I, J, k]
+                x = abs(a)
+                y = abs(a - prev[I, J, n])
+                if x != x:
+                    nx = True
+                if y != y:
+                    ny = True
+                if x > m:
+                    m = x
+                if y > d:
+                    d = y
+                prev[I, J, n] = a
+        if nx:
+            m = math.nan
+        if ny:
+            d = math.nan
+        out[n, 0] = m
+        out[n, 1] = d
+
+
+@jit
 def _rel_change(new, old):
     """Относительное изменение RS, как в метках 15/16, 25/26, 65/66."""
     RS = 0.0
@@ -523,31 +543,41 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
     for I in range(2, INM + 1):
         A[I, 2, NMU2] = A[I, 3, NMU2] * R[2] / R[3]
     # ---------- перенос компонентов и энтальпии: K = 10, 9, ..., 3 ----------
-    for II in range(3, 11):
-        K = 13 - II
-        for J in range(2, JNM + 1):
-            IL = IMIN[J]
-            IM = IMAX[J]
-            if J == JA3:
-                IL = IC2 + 1
-            if J == JC:
-                IM = IC - 1
-            for I in range(IL, IM + 1):
-                ADNM = AE1[I, J] + AW1[I, J] + AN1[I, J] + AS1[I, J]
+    # В оригинале - 8 отдельных проходов (по одному на величину). Уравнения
+    # не связаны между собой (одни и те же коэффициенты AE1..AS1, соседи -
+    # той же величины), поэтому все 8 считаются за один проход по узлам в
+    # том же порядке узлов: результат тот же бит-в-бит, а коэффициенты и
+    # их сумма читаются один раз вместо восьми.
+    for J in range(2, JNM + 1):
+        IL = IMIN[J]
+        IM = IMAX[J]
+        if J == JA3:
+            IL = IC2 + 1
+        if J == JC:
+            IM = IC - 1
+        for I in range(IL, IM + 1):
+            ae = AE1[I, J]
+            aw = AW1[I, J]
+            an = AN1[I, J]
+            as_ = AS1[I, J]
+            ADNM = ae + aw + an + as_
+            if ADNM == 0.:
+                continue
+            for II in range(3, 11):
+                K = 13 - II
                 Z = A[I, J, K]
-                ANUM = (AE1[I, J] * A[I + 1, J, K] + AW1[I, J] * A[I - 1, J, K]
-                        + AN1[I, J] * A[I, J + 1, K]
-                        + AS1[I, J] * A[I, J - 1, K])
+                ANUM = (ae * A[I + 1, J, K] + aw * A[I - 1, J, K]
+                        + an * A[I, J + 1, K]
+                        + as_ * A[I, J - 1, K])
                 ANUM = ANUM + 0.0  # SORCE для K >= 3 равен 0
-                if ADNM == 0.:
-                    continue
                 A[I, J, K] = ANUM / ADNM
-                if K != NMU1:
-                    continue
-                RS = _rel_change(A[I, J, K], Z)
-                if abs(RS) > abs(RSDU[K]):
-                    RSDU[K] = RS
-    # ---------- нормировка (DO 56) ----------
+                if K == NMU1:
+                    RS = _rel_change(A[I, J, K], Z)
+                    if abs(RS) > abs(RSDU[K]):
+                        RSDU[K] = RS
+    # ---------- нормировка (DO 56) и химическая реакция (DO 82) ----------
+    # В оригинале - два прохода по узлам; оба используют только значения
+    # в самом узле, поэтому объединены в один (результат тот же).
     for J in range(2, JNM + 1):
         IL = IMIN[J]
         IM = IMAX[J]
@@ -561,24 +591,14 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
             CM = (A[I, J, NMFU1] + A[I, J, NMFU2] + A[I, J, NMOX1]
                   + A[I, J, NMOX2] + A[I, J, NMPR1] + A[I, J, NMPR2]
                   + A[I, J, NMDF])
-            if abs(CM) <= 1.e-20:
-                continue
-            A[I, J, NMFU1] = A[I, J, NMFU1] / CM
-            A[I, J, NMFU2] = A[I, J, NMFU2] / CM
-            A[I, J, NMOX1] = A[I, J, NMOX1] / CM
-            A[I, J, NMOX2] = A[I, J, NMOX2] / CM
-            A[I, J, NMPR1] = A[I, J, NMPR1] / CM
-            A[I, J, NMPR2] = A[I, J, NMPR2] / CM
-            A[I, J, NMDF] = A[I, J, NMDF] / CM
-    # ---------- химическая реакция (DO 82) ----------
-    for J in range(2, JNM + 1):
-        IL = IMIN[J]
-        IM = IMAX[J]
-        if J == JA3:
-            IL = IC2 + 1
-        if J == JC:
-            IM = IC - 1
-        for I in range(IL, IM + 1):
+            if abs(CM) > 1.e-20:
+                A[I, J, NMFU1] = A[I, J, NMFU1] / CM
+                A[I, J, NMFU2] = A[I, J, NMFU2] / CM
+                A[I, J, NMOX1] = A[I, J, NMOX1] / CM
+                A[I, J, NMOX2] = A[I, J, NMOX2] / CM
+                A[I, J, NMPR1] = A[I, J, NMPR1] / CM
+                A[I, J, NMPR2] = A[I, J, NMPR2] / CM
+                A[I, J, NMDF] = A[I, J, NMDF] / CM
             react = True
             if NITER == 18 and I >= 3 and I <= IGN_I2 and J > JZ and J < JA1:
                 react = True        # GO TO 33: принудительное зажигание

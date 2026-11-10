@@ -421,8 +421,9 @@ class Solver:
         last_cb = 0.0
         self._hist = {"iter": [], "omega": [], "psi": [], "T": [], "CH4": []}
         self._snaps = []
-        prev = self.A[:, :, (NW, NF, NT, NMFU1)].copy() if self.track_history \
-            else None
+        prev = self.A[:, :, (NW, NF, NT, NMFU1)].copy(order="F") \
+            if self.track_history else None
+        self._hout = np.zeros((4, 2))
         # Остановка при установлении: изменение ψ и T за итерацию (относит.
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
@@ -431,7 +432,9 @@ class Solver:
         self._settled = None
         if tol > 0:
             self._settled = False
-            stop_prev = self.A[:, :, (NF, NT)].copy()
+            stop_prev = self.A[:, :, (NF, NT)].copy(order="F")
+            stop_k = np.array((NF, NT), dtype=np.int64)
+            stop_out = np.zeros((2, 2))
             calm = 0
         while True:
             self.NITER += 1
@@ -481,14 +484,12 @@ class Solver:
             if self.NITER >= limit:
                 break
             if tol > 0:
-                cur = self.A[:, :, (NF, NT)]
+                K.field_change(self.A, stop_prev, stop_k, stop_out)
                 worst = 0.
                 for n in (0, 1):
-                    scale = float(np.max(np.abs(cur[:, :, n])))
+                    scale = float(stop_out[n, 0])
                     if scale > 0:
-                        worst = max(worst, float(np.max(np.abs(
-                            cur[:, :, n] - stop_prev[:, :, n]))) / scale)
-                stop_prev[...] = cur
+                        worst = max(worst, float(stop_out[n, 1]) / scale)
                 calm = calm + 1 if worst < tol else 0
                 if calm >= 20 and self.NITER > max(p.NPRINT, 50):
                     self._settled = True
@@ -532,16 +533,17 @@ class Solver:
 
     _HKEYS = (("omega", 0), ("psi", 1), ("T", 2), ("CH4", 3))
 
+    _HK = np.array((NW, NF, NT, NMFU1), dtype=np.int64)
+
     def _record(self, prev):
-        cur = self.A[:, :, (NW, NF, NT, NMFU1)]
+        out = self._hout
+        K.field_change(self.A, prev, self._HK, out)
         h = self._hist
         h["iter"].append(self.NITER)
         for name, n in self._HKEYS:
-            a, b = cur[:, :, n], prev[:, :, n]
-            scale = float(np.max(np.abs(a)))
-            d = float(np.max(np.abs(a - b)))
+            scale = float(out[n, 0])
+            d = float(out[n, 1])
             h[name].append(d / scale if scale > 0 else d)
-        prev[...] = cur
 
     # ------------------------------------------------------------------
     def preview(self):
