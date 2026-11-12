@@ -115,19 +115,14 @@
 "name": "Наибольшее число итераций"
 },
 {
-"fortran": "TSMOOTH",
-"sym": "w",
-"name": "Ширина сглаживания"
-},
-{
 "fortran": "EDM_A",
 "sym": "A",
 "name": "Постоянная EDM"
 },
 {
-"fortran": "TURB",
-"sym": "μт",
-"name": "Турбулентная вязкость"
+"fortran": "T_AVG",
+"sym": "tос",
+"name": "Время осреднения"
 },
 {
 "fortran": "KM",
