@@ -10,7 +10,19 @@
 """
 
 from ..kernels import (NMDF, NMFU1, NMFU2, NMOX1, NMOX2, NMPR1, NMPR2, NMU,
-                       NMU2, NRO3, NV1, NV2, jit)
+                       NMU2, NRO3, NV1, NV2, HAVE_NUMBA)
+from ..kernels import jit as _jit_plain
+
+if HAVE_NUMBA:
+    from numba import njit as _njit
+    from ..kernels import _CACHE
+
+    def jit(f):
+        # с проверкой границ массивов: ошибка индекса - сообщение, а не
+        # аварийное завершение программы (эти ядра - малая часть времени)
+        return _njit(cache=_CACHE, nogil=True, boundscheck=True)(f)
+else:
+    jit = _jit_plain
 
 # Массовые доли продуктов на 1 кг сгоревшего CH4 для брутто-реакции модели
 # 24 CH4 + 47 O2 -> 8 CO2 + 16 CO + 2 H2 + 30 H2O + 32 OH (как в EQN)

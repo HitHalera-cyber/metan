@@ -691,9 +691,46 @@ class App(ctk.CTk):
         self.destroy()
 
 
+def _crash_log():
+    """Журнал аварий %APPDATA%\\Metan\\crash.log: при падении процесса
+    (ошибка доступа к памяти в вычислительном ядре и т. п.) faulthandler
+    записывает, где это случилось, во всех потоках; необработанные ошибки
+    Python в потоках - туда же."""
+    import faulthandler
+    import threading
+    import traceback
+    from . import config
+    from .. import __version__
+    path = os.path.join(os.path.dirname(config._path()), "crash.log")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = open(path, "a", encoding="utf-8", buffering=1)
+    except OSError:
+        return None
+    import datetime
+    fh.write("\n=== Metan %s, запуск %s ===\n" % (
+        __version__, datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")))
+    faulthandler.enable(fh, all_threads=True)
+
+    def hook(args):
+        fh.write("Ошибка в потоке %s:\n" % getattr(args.thread, "name", "?"))
+        traceback.print_exception(args.exc_type, args.exc_value,
+                                  args.exc_traceback, file=fh)
+    threading.excepthook = hook
+    return fh
+
+
 def main(mode=None):
+    import threading
     from . import config
     from .splash import run_splash
+    _crash_log()
+    # Стек потоков расчёта: в Windows по умолчанию 1 МБ, а компиляция ядра
+    # numba (LLVM) в фоновом потоке бывает глубокой
+    try:
+        threading.stack_size(64 * 1024 * 1024)
+    except (ValueError, RuntimeError):
+        pass
     cfg = config.load()
     run_splash("city", mode=mode or cfg.get("mode", "light"))
     App(mode, cfg).mainloop()

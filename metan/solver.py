@@ -506,6 +506,11 @@ class Solver:
                 break
             if tol > 0:
                 K.field_change(self.A, stop_prev, stop_k, stop_out)
+                if not np.all(np.isfinite(stop_out)):
+                    # NaN/∞ в ψ или T - расчёт разошёлся (раньше NaN
+                    # «не менялся» и вариант считался установившимся)
+                    self.NITER = max(self.NITER, limit) + 1000
+                    break
                 worst = 0.
                 for n in (0, 1):
                     scale = float(stop_out[n, 0])
