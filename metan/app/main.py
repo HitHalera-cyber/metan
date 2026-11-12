@@ -59,9 +59,22 @@ PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
          SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
 
 
+def main_thread_gc():
+    """Автоматическая сборка мусора выключается: она запускается в том
+    потоке, который сейчас создаёт объекты, - часто в фоновом потоке
+    расчёта (компиляция ядра numba создаёт их очень много). Если при этом
+    удаляются объекты интерфейса tkinter, Tcl обращается к себе не из
+    главного потока и аварийно завершает программу (код 0x80000003 в
+    Windows). Мусор собирается вызовом gc.collect() из главного потока -
+    раз в 2 с (App._gc_tick) и в заставке."""
+    import gc
+    gc.disable()
+
+
 class App(ctk.CTk):
     def __init__(self, mode=None, cfg=None):
         from . import config
+        main_thread_gc()
         self.cfg = cfg if cfg is not None else config.load()
         mode = mode or self.cfg.get("mode", "light")
         ctk.set_appearance_mode(mode)
@@ -101,6 +114,7 @@ class App(ctk.CTk):
         self.bind_all("<F5>", lambda e: self.run())
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.after(100, self._poll)
+        self.after(2000, self._gc_tick)
         self.show_page(PAGES[0].title)
 
     # ------------------------------------------------------------ верх
@@ -489,6 +503,12 @@ class App(ctk.CTk):
             return None
         return v
 
+    def _gc_tick(self):
+        """Сборка мусора в главном потоке (см. main_thread_gc)."""
+        import gc
+        gc.collect()
+        self.after(2000, self._gc_tick)
+
     def _update_continue(self):
         if self._resumable() is not None and not self.busy:
             self.cont_btn.grid()
@@ -725,6 +745,7 @@ def main(mode=None):
     from . import config
     from .splash import run_splash
     _crash_log()
+    main_thread_gc()
     # Стек потоков расчёта: в Windows по умолчанию 1 МБ, а компиляция ядра
     # numba (LLVM) в фоновом потоке бывает глубокой
     try:

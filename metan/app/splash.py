@@ -12,6 +12,7 @@
 
 import math
 import random
+import gc
 import threading
 import time
 
@@ -509,6 +510,12 @@ def _warmup(status):
     from ..params import Params
     from ..solver import Solver
     Solver(Params(NVARM=1, NMAX=2, NPRINT=1), track_history=False).run()
+    # ядра уточнённых моделей (EDM, k-ε) и таблицы равновесия - тоже
+    # заранее, а не при первом выборе модели в фоновом потоке
+    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, COMB=1, TURB=1),
+           track_history=False).run()
+    Solver(Params(NVARM=1, NMAX=2, NPRINT=1, COMB=2),
+           track_history=False).run()
     status("Запуск интерфейса…")
     for mod in ("customtkinter", "metan.app.main"):
         importlib.import_module(mod)
@@ -575,6 +582,10 @@ def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
         status.set(state["msg"])
         k = min(1.0, state["step"] / 4 + 0.05 * (t % 1))
         bar.coords(fill, 0, 0, int((w - 40) * k), 4)
+        # сборка мусора - только здесь, в главном потоке (см. app/main.py)
+        if int(t * 2) != state.get("gc"):
+            state["gc"] = int(t * 2)
+            gc.collect()
         if (state["done"] and (t >= min_time or state.get("skip"))) or t > max_time:
             root.destroy()
             return
