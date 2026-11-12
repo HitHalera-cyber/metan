@@ -501,6 +501,8 @@ class App(ctk.CTk):
         v = r.variants[0]
         if v.diverged or v.settled is not False:
             return None
+        if int(getattr(r.params, "UNSTEADY", 0)):
+            return None         # нестационарный - только новый расчёт
         return v
 
     def _gc_tick(self):
@@ -539,8 +541,11 @@ class App(ctk.CTk):
 
         def job(progress, cancel):
             def prog(nvar, nvarm, niter, nmax):
+                what = "шаг по времени" if prm.UNSTEADY and \
+                    nmax != prm.NMAX else "итерация"
                 progress(((nvar - 1) + niter / nmax) / nvarm,
-                         "вариант %d/%d · итерация %d/%d" % (nvar, nvarm, niter, nmax))
+                         "вариант %d/%d · %s %d/%d" % (nvar, nvarm, what,
+                                                      niter, nmax))
             res = Solver(prm, progress=prog, cancel=cancel,
                          snapshot_every=snap, keep_partial=True,
                          resume=resume).run()
@@ -587,7 +592,8 @@ class App(ctk.CTk):
         cost = getattr(self.sidebar, "_node_cost", None)
         if not est or not cost:
             return True
-        n = min(est["n_req"], prm.NMAX) * prm.NVARM
+        extra = self.sidebar._unsteady_iters()[1] if prm.UNSTEADY else 0
+        n = (min(est["n_req"], prm.NMAX) + extra) * prm.NVARM
         sec = n * prm.IN * prm.JN * cost
         if sec < 120:
             return True

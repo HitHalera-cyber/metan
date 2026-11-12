@@ -275,8 +275,44 @@ class ConvergencePage(Page):
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.grid_rowconfigure(2, weight=1)
 
+    def refresh_unsteady(self, v):
+        """Нестационарный расчёт: φк(t) и осреднение по времени."""
+        u = v.extra["unsteady"]
+        f = self.plot.fig
+        f.clear()
+        ax = f.add_subplot(111)
+        col = plotting.THEMES[self.app.mode]["series"]
+        t = np.asarray(u["t"]) * 1e3
+        fk = np.asarray(u["fk_t"])
+        ax.plot(t, fk, color=col[0], lw=1.3, label="φк(t)")
+        if u["n_spin"] < len(t):
+            ax.axvspan(t[0], t[min(u["n_spin"], len(t) - 1)], color="0.5",
+                       alpha=0.12, label="разгон")
+        ax.axhline(u["fk_mean"], color=col[1], ls="--", lw=1.2,
+                   label="среднее %.4f" % u["fk_mean"])
+        ax.set_xlabel("время t, мс")
+        ax.set_ylabel("φк")
+        ax.grid(True, alpha=0.25)
+        ax.legend(fontsize=8)
+        ax.set_title("Нестационарный расчёт: полнота сгорания во времени",
+                     fontsize=11)
+        self.plot.show()
+        st = ("среднее установилось (первая и вторая половины осреднения "
+              "отличаются меньше чем на 0.5 %)" if v.settled else
+              "среднее ещё меняется - увеличьте время осреднения tос")
+        self.verdict.configure(text=(
+            "α=%.2f: τпр = %.3f мс, шаг Δt = %.2f мкс (%d шагов на τпр), "
+            "%d шагов, в среднем %.1f итераций на шаге; установление перед "
+            "этим - %d итераций.\nφк = %.4f ± %.4f (среднее и размах "
+            "колебаний за время осреднения) → %s."
+            % (v.values["ALFA"], u["tau"] * 1e3, u["dt"] * 1e6,
+               round(u["tau"] / u["dt"]), u["steps"], u["inner_mean"],
+               u["pre_iters"], u["fk_mean"], u["fk_std"], st)))
+
     def refresh(self):
         v = self.app.variant
+        if v is not None and v.extra.get("unsteady") is not None:
+            return self.refresh_unsteady(v)
         if v is None or not v.history:
             self.plot.message("Нет данных о сходимости")
             self.verdict.configure(text="")

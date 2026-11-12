@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from . import __version__
 from . import notation, plotting
 from .analysis import exit_summary
-from .refined import COMB_NAMES, TURB_NAMES, temperature_mode
+from .refined import COMB_NAMES, TURB_NAMES, models, temperature_mode
 from .kernels import NF, NT
 from .params import Params
 
@@ -110,7 +110,9 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
             continue
         if name == "TURB":
             continue
-        if name == "EDM_A" and p.COMB != 1:
+        if name == "EDM_A" and models(p)[0] != 1:
+            continue
+        if name == "T_AVG" and not p.UNSTEADY:
             continue
         rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
     rows.append(("Модель температуры", "", {
@@ -118,8 +120,11 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         2: "равновесная (термодинамический расчёт)",
         3: "равновесная × доля сгоревшего (задаётся моделью EDM)"}.get(
             temperature_mode(p), "?"), ""))
-    rows.append(("Модель горения", "", COMB_NAMES[p.COMB], ""))
-    rows.append(("Модель турбулентности", "", TURB_NAMES[p.TURB], ""))
+    comb, turb = models(p)
+    rows.append(("Расчёт", "", "нестационарный (осреднение по времени)"
+                 if p.UNSTEADY else "стационарный", ""))
+    rows.append(("Модель горения", "", COMB_NAMES[comb], ""))
+    rows.append(("Модель турбулентности", "", TURB_NAMES[turb], ""))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
 

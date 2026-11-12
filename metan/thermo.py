@@ -128,7 +128,45 @@ def equilibrium_HP(h, P, b, T0=2500.0):
     return T, Y, cp
 
 
+# ----------------------------------------------------------------------
+# Подключаемое термодинамическое ядро.
+#
+# Решатель берёт равновесные свойства только через adiabatic_table(). Чтобы
+# вместо встроенного расчёта использовать другое ядро (например, программу
+# «Астра» Б. Г. Трусова), достаточно передать в set_backend() объект с
+# методом
+#     adiabatic_table(P, h_fuel, h_ox, n) -> (f, T, cp, h)
+# (массивы длины n: доля горючего 0…1, равновесная температура, K,
+# равновесная теплоёмкость, кДж/(кг·K), энтальпия смеси, кДж/кг) и
+# атрибутом name. Пример - класс BuiltinBackend ниже.
+class BuiltinBackend:
+    """Встроенный расчёт: минимизация энергии Гиббса, 9 веществ, NASA."""
+    name = "встроенный (NASA, GRI-Mech 3.0)"
+
+    def adiabatic_table(self, P, h_fuel, h_ox=0.0, n=401):
+        return _builtin_adiabatic_table(P, h_fuel, h_ox, n)
+
+
+_BACKEND = BuiltinBackend()
+
+
+def set_backend(backend):
+    """Подключить другое термодинамическое ядро (None - встроенное)."""
+    global _BACKEND
+    _BACKEND = backend if backend is not None else BuiltinBackend()
+
+
+def get_backend():
+    return _BACKEND
+
+
 def adiabatic_table(P, h_fuel, h_ox=0.0, n=401):
+    """Таблица равновесных свойств по доле горючего - через подключённое
+    термодинамическое ядро (по умолчанию - встроенное)."""
+    return _BACKEND.adiabatic_table(P, h_fuel, h_ox, n)
+
+
+def _builtin_adiabatic_table(P, h_fuel, h_ox=0.0, n=401):
     """Таблица равновесной температуры по доле горючего f при давлении P:
     энтальпия смеси h(f) = f·h_fuel + (1 − f)·h_ox (адиабатическое смешение).
     Возвращает массивы f, T, cp_eq (кДж/(кг·K)), h."""

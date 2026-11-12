@@ -85,8 +85,10 @@ def fpow(x, y):
 @jit
 def viscos(A, X1, R, IMIN, IMAX, PKS,
            IN, JN, JA, JZ, JZ1, JA1, JA2, JA3, JC, IC1, IC2,
-           VINP, VINS, ROP, ROS, VINS1, TMODE, TW, TAB_T, TAB_CP, TAB_H):
-    RL = 0.1
+           VINP, VINS, ROP, ROS, VINS1, TMODE, TW, TAB_T, TAB_CP, TAB_H,
+           RLD=0.1):
+    # RLD - нижняя релаксация плотности (0.1 - как в оригинале)
+    RL = RLD
     # В оригинале - три прохода по узлам: DO 100 (отрицательные
     # концентрации -> 0), DO 121 (нормировка) и DO 20 (температура и
     # плотность). Все три используют только значения в самом узле, поэтому
@@ -417,13 +419,18 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
         AE, AW, AN, AS, AE1, AW1, AN1, AS1, UKS, FKS, TKS, RSDU,
         IN, INM, JN, JNM, JA, JA1, JA2, JA3, JB, JB1, JC, JC1, JZ, JZ1,
         IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0,
-        REACT=1, W_RELAX=1.0):
+        REACT=1, W_RELAX=1.0, TRANS=0, TC=None, AO=None, RLW=0.1):
     # IGN_I2 - последний узел зоны поджига по длине (в оригинале 11 = IC2+1)
     # OMEGA - параметр верхней релаксации для ψ (1.0 - как в оригинале,
     # чистый Гаусс-Зейдель; 1 < OMEGA < 2 - метод SOR, быстрее)
     # REACT = 0 - мгновенная реакция выключена (горение считает модель EDM
     # или равновесная); W_RELAX - нижняя релаксация вихря (1 - как в
     # оригинале, меньше - при модели k-ε)
+    # TRANS = 1 - нестационарный расчёт: в уравнения вихря, закрутки,
+    # компонентов и энтальпии добавлен член производной по времени
+    # ρ·(φ − φⁿ)/Δt (неявная схема), TC = ρ/Δt в узле, AO - поля на
+    # предыдущем шаге по времени; RLW - нижняя релаксация вихря (0.1 - как
+    # в оригинале). При TRANS = 0 расчёт - в точности прежний.
     # ---------- уравнение для вихря (NW) ----------
     if not (NITER <= NPRINT and NVAR == 1):
         RL = 0.1
@@ -462,9 +469,12 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                             + SOURCE)
                     ADNM = AAE + AAW + AAN + AAS + A[I, J, NMU] * \
                         (BBE + BBW + BBN + BBS)
+                    if TRANS:
+                        ANUM = ANUM + RSO * TC[I, J] * AO[I, J, NW]
+                        ADNM = ADNM + RSO * TC[I, J]
                     if ADNM != 0.:
                         A[I, J, NW] = ANUM / ADNM
-                        A[I, J, NW] = Z + (A[I, J, NW] - Z) * RL
+                        A[I, J, NW] = Z + (A[I, J, NW] - Z) * RLW
                 else:
                     # метки 111 / 113: вихрь на угловых точках
                     RISO = 1. / R[J] / R[J]
@@ -479,7 +489,7 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                             + BBN * A[I, J + 1, NF] + BBS * A[I, J - 1, NF])
                     ADNM = BBE + BBW + BBN + BBS
                     A[I, J, NW] = A[I, J, NF] * ADNM - ANUM
-                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * RL
+                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * RLW
                 # 114
                 RS = _rel_change(A[I, J, NW], Z)
                 if abs(RS) > abs(RSDU[NW]):
@@ -558,6 +568,9 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
             ADNM = (AE[I, J] + AW[I, J] + AN[I, J] + AS[I, J] + BBE / R[J] ** 2
                     + BBW / R[J] ** 2 + BBN / R[J + 1] ** 2
                     + BBS / R[J - 1] ** 2)
+            if TRANS:
+                ANUM = ANUM + TC[I, J] * AO[I, J, NMU2]
+                ADNM = ADNM + TC[I, J]
             if ADNM == 0.:
                 continue
             A[I, J, NMU2] = ANUM / ADNM
@@ -591,7 +604,11 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                         + an * A[I, J + 1, K]
                         + as_ * A[I, J - 1, K])
                 ANUM = ANUM + 0.0  # SORCE для K >= 3 равен 0
-                A[I, J, K] = ANUM / ADNM
+                if TRANS:
+                    A[I, J, K] = (ANUM + TC[I, J] * AO[I, J, K]) / \
+                        (ADNM + TC[I, J])
+                else:
+                    A[I, J, K] = ANUM / ADNM
                 if K == NMU1:
                     RS = _rel_change(A[I, J, K], Z)
                     if abs(RS) > abs(RSDU[K]):

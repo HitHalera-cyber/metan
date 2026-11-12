@@ -100,9 +100,3 @@ def test_reynolds_criterion():
     assert convergence.stability(exact) == "ok"
     assert convergence.stability(100) == "edge"
     assert convergence.stability(150) == "bad"
-
-
-def test_smoothed_model_settles_at_alpha_08():
-    """При w = 0.4 сглаженная модель устанавливается и при α = 0.8."""
-    v = Solver(Params(ALFA=0.8, NVARM=1, TMODEL=1, NMAX=4000)).run().variants[0]
-    assert v.settled

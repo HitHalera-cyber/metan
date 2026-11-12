@@ -411,7 +411,193 @@ class Solver:
                 A[I, J, NF] = A[IC2, J, NF]
 
     # ------------------------------------------------------------------
+    _TC0 = np.zeros((1, 1))
+    _AO0 = np.zeros((1, 1, 1))
+
+    def _sweep(self, tmode, react, w_relax, ref, trans=0, TC=None, AO=None,
+               rlw=0.1, rld=0.1):
+        """Одна итерация: VISCOS, VELDIS, CONVEC, EQN (+ уточнённые модели).
+        trans = 1 - нестационарный шаг (TC = ρ/Δt, AO - поля на прошлом шаге
+        по времени); rlw, rld - нижняя релаксация вихря и плотности (0.1 -
+        как в оригинале)."""
+        p = self.p
+        if TC is None:
+            TC, AO = self._TC0, self._AO0
+        K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
+                 self.IN, self.JN, self.JA, self.JZ, self.JZ1, self.JA1,
+                 self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
+                 self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
+                 tmode, float(p.TSMOOTH), *self._ttab, rld)
+        if ref is not None:
+            ref.after_viscos()
+        self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
+                              self.IMAX, self.VS, self.FKS, self.UKS,
+                              self.INM, self.JNM, self.JA3, self.JC,
+                              self.IC, self.IC2, self.NITER)
+        K.convec(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
+                 self.BE, self.BW, self.BN, self.BS,
+                 self.AE, self.AW, self.AN, self.AS,
+                 self.AE1, self.AW1, self.AN1, self.AS1,
+                 self.JNM, self.JA3, self.JC, self.IC, self.IC2)
+        if ref is not None:
+            ref.after_convec()
+        K.eqn(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
+              self.BE, self.BW, self.BN, self.BS,
+              self.AE, self.AW, self.AN, self.AS,
+              self.AE1, self.AW1, self.AN1, self.AS1,
+              self.UKS, self.FKS, self.TKS, self.RSDU,
+              self.IN, self.INM, self.JN, self.JNM, self.JA, self.JA1,
+              self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
+              self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
+              self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
+              self.IC2 + 1, float(p.OMEGA), react, w_relax,
+              trans, TC, AO, rlw)
+        if ref is not None:
+            ref.after_eqn()
+
     def _iterate(self):
+        if int(getattr(self.p, "UNSTEADY", 0)):
+            return self._iterate_unsteady()
+        return self._iterate_steady()
+
+    # нижняя релаксация вихря и плотности на шаге по времени: с членом
+    # ρ/Δt уравнения устойчивы и без сильной релаксации (в стационарном
+    # расчёте - 0.1, как в оригинале)
+    UNSTEADY_RLW = 0.5
+    UNSTEADY_RLD = 0.5
+
+    def _fk_now(self):
+        ALFA, AMG, AMO2, BETA = self._fkargs
+        if self.p.model == "original":
+            return float(self._coefs_original(ALFA, AMG, AMO2, BETA)[0])
+        return float(self._coefs_corrected(ALFA, AMG, AMO2, BETA)[0])
+
+    def _residence_time(self, INT):
+        """Время пребывания газа в камере τпр = масса газа / расход."""
+        n1, n2 = self.IN + 1, self.JN + 1
+        x = np.asarray(self.X1[1:n1], float)
+        r = np.asarray(self.X2[1:n2], float)
+        dx = np.gradient(x)
+        dr = np.gradient(r)
+        rho = self.A[1:n1, 1:n2, NRO3]
+        vol = dx[:, None] * dr[None, :]
+        if int(self.NCORD) == 2:
+            vol = vol * 2 * np.pi * np.abs(r)[None, :]
+        m = INT[1:n1, 1:n2]
+        mass = float((rho * vol)[m].sum())
+        return mass / max(self._ms, 1e-12)
+
+    def _iterate_unsteady(self):
+        """Нестационарный расчёт (URANS): установление стационарным
+        расчётом (EDM, алгебраическая вязкость), затем шаги по времени Δt =
+        τпр/DT_STEPS с моделями k-ε + EDM; на каждом шаге - итерации до
+        сходимости (не больше INNER); разгон T_SPIN·τпр, затем осреднение
+        полей и φк по времени за T_AVG·τпр."""
+        import dataclasses
+        pu = self.p
+        self.p = dataclasses.replace(pu, UNSTEADY=0, COMB=1)
+        try:
+            self._iterate_steady()
+        finally:
+            self.p = pu
+        p = pu
+        if self._stopped or self.NITER > self._limit:
+            return
+        pre = self.NITER
+        A = self.A
+        tmode = refined.temperature_mode(p)
+        ref = refined.Refined(self, unsteady=True)
+        ref.init_from_mu()
+        self._ref = ref
+        tau = self._residence_time(ref.INT)
+        dt = tau / p.DT_STEPS
+        n_spin = int(round(p.T_SPIN * p.DT_STEPS))
+        n_avg = max(2, int(round(p.T_AVG * p.DT_STEPS)))
+        nsteps = n_spin + n_avg
+        AO = A.copy(order="F")
+        TC = np.zeros(A.shape[:2])
+        ref.TC = TC
+        ref.KO = ref.K.copy()
+        ref.EO = ref.E.copy()
+        avg = np.zeros_like(A)
+        navg = 0
+        fk_t, t_t = [], []
+        kk = np.array((NF, NT), dtype=np.int64)
+        out = np.zeros((2, 2))
+        inner_prev = A[:, :, (NF, NT)].copy(order="F")
+        prev = A[:, :, (NW, NF, NT, NMFU1)].copy(order="F") \
+            if self.track_history else None
+        self._snaps = []
+        snap_every = max(1, nsteps // 100) if self.snapshot_every else 0
+        self._limit = pre + nsteps * p.INNER
+        diverged = False
+        last_cb = 0.0
+        step = -1
+        for step in range(nsteps):
+            AO[...] = A
+            ref.KO[...] = ref.K
+            ref.EO[...] = ref.E
+            np.divide(A[:, :, NRO3], dt, out=TC)
+            K.field_change(A, inner_prev, kk, out)
+            for it in range(p.INNER):
+                n0 = self.NITER + 1
+                self.NITER = n0
+                self._sweep(tmode, 0, 1.0, ref, 1, TC, AO,
+                            self.UNSTEADY_RLW, self.UNSTEADY_RLD)
+                if self.NITER != n0:            # скорость > 27 000 м/с
+                    diverged = True
+                    break
+                if prev is not None:
+                    self._record(prev)
+                K.field_change(A, inner_prev, kk, out)
+                if not np.all(np.isfinite(out)):
+                    diverged = True
+                    break
+                worst = max(out[n, 1] / out[n, 0] if out[n, 0] > 0 else 0.
+                            for n in (0, 1))
+                if it >= 1 and worst < p.INNER_TOL:
+                    break
+            if diverged:
+                break
+            fk_t.append(self._fk_now())
+            t_t.append((step + 1) * dt)
+            if step >= n_spin:
+                avg += A
+                navg += 1
+            if snap_every and step % snap_every == 0:
+                self._snaps.append((self.NITER, A.astype(np.float32)))
+            if self.cancel is not None and self.cancel():
+                if self.keep_partial:
+                    self._stopped = True
+                    break
+                raise Cancelled()
+            if self.progress is not None:
+                now = time.monotonic()
+                if now - last_cb > 0.05 or step == nsteps - 1:
+                    last_cb = now
+                    self.progress(self.NVAR, p.NVARM, step + 1, nsteps)
+        if diverged:
+            self.NITER = self._limit + 1000
+            return
+        if navg:
+            A[...] = avg / navg
+        fa = np.array(fk_t[n_spin:]) if navg else np.array(fk_t)
+        half = len(fa) // 2
+        settled = None
+        if half >= 2:
+            m1, m2 = fa[:half].mean(), fa[half:].mean()
+            settled = bool(abs(m1 - m2) < 0.005 * max(abs(fa.mean()), 1e-9))
+        self._settled = settled if not self._stopped else False
+        self._limit = max(self._limit, self.NITER)
+        self._unsteady_info = dict(
+            dt=dt, tau=tau, steps=step + 1, n_spin=n_spin, n_avg=n_avg,
+            averaged_steps=navg, pre_iters=pre,
+            inner_mean=(self.NITER - pre) / max(step + 1, 1),
+            fk_t=np.array(fk_t), t=np.array(t_t),
+            fk_mean=float(fa.mean()) if len(fa) else float("nan"),
+            fk_std=float(fa.std()) if len(fa) else float("nan"))
+
+    def _iterate_steady(self):
         """Итерационный цикл варианта (метка 1 в RK2.FOR)."""
         p = self.p
         self.NITER = 0
@@ -453,36 +639,7 @@ class Solver:
             calm = 0
         while True:
             self.NITER += 1
-            K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
-                     self.IN, self.JN, self.JA, self.JZ, self.JZ1, self.JA1,
-                     self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
-                     self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
-                     tmode, float(p.TSMOOTH), *self._ttab)
-            if ref is not None:
-                ref.after_viscos()
-            self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
-                                  self.IMAX, self.VS, self.FKS, self.UKS,
-                                  self.INM, self.JNM, self.JA3, self.JC,
-                                  self.IC, self.IC2, self.NITER)
-            K.convec(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
-                     self.BE, self.BW, self.BN, self.BS,
-                     self.AE, self.AW, self.AN, self.AS,
-                     self.AE1, self.AW1, self.AN1, self.AS1,
-                     self.JNM, self.JA3, self.JC, self.IC, self.IC2)
-            if ref is not None:
-                ref.after_convec()
-            K.eqn(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
-                  self.BE, self.BW, self.BN, self.BS,
-                  self.AE, self.AW, self.AN, self.AS,
-                  self.AE1, self.AW1, self.AN1, self.AS1,
-                  self.UKS, self.FKS, self.TKS, self.RSDU,
-                  self.IN, self.INM, self.JN, self.JNM, self.JA, self.JA1,
-                  self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
-                  self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
-                  self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-                  self.IC2 + 1, float(p.OMEGA), react, w_relax)
-            if ref is not None:
-                ref.after_eqn()
+            self._sweep(tmode, react, w_relax, ref)
             if self.track_history:
                 self._record(prev)
             if (snap_step and self.NITER <= p.NMAX
@@ -530,7 +687,8 @@ class Solver:
         if refined.temperature_mode(p) not in (2, 3):
             z = np.zeros(2)
             return (z, z + 1., z)
-        key = (float(p.P), float(p.H))
+        from . import thermo as _th
+        key = (float(p.P), float(p.H), getattr(_th.get_backend(), "name", ""))
         if key not in self._TT_CACHE:
             from . import thermo
             f, T, cp, h = thermo.adiabatic_table(p.P, p.H)
@@ -769,6 +927,9 @@ class Solver:
                 line += " " + name + "=" + fmt_e(val, 11, 4)
         out.append(line)
 
+        self._fkargs = (ALFA, AMG, AMO2, BETA)
+        self._ms = float(AMS)
+        self._unsteady_info = None
         self._iterate()
         if self._ref is not None:
             self._ref.end()
@@ -778,6 +939,13 @@ class Solver:
             fk, kind, FICM, extra = self._coefs_original(ALFA, AMG, AMO2, BETA)
         else:
             fk, kind, FICM, extra = self._coefs_corrected(ALFA, AMG, AMO2, BETA)
+        ui = self._unsteady_info
+        if ui is not None:
+            # нестационарный расчёт: φк - среднее по времени (по полю,
+            # осреднённому по времени, - в extra["fk_field"])
+            extra["fk_field"] = float(fk)
+            fk = ui["fk_mean"]
+            extra["unsteady"] = ui
         if kind == "GOR":
             out.append(" ************* KOEF Fkomp (GOR) =" + fmt_f(fk, 8, 5)
                        + " **********")

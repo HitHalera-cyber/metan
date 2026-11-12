@@ -146,6 +146,10 @@ def reynolds(params, iters=100):
     (доли секунды; отличие от установившегося значения 2…15 %)."""
     import dataclasses
     from .solver import Solver
+    # нестационарный расчёт начинается с установления (EDM, алгебраическая
+    # вязкость) - по нему и оценка
+    if int(getattr(params, "UNSTEADY", 0)):
+        params = dataclasses.replace(params, UNSTEADY=0, COMB=1)
     q = dataclasses.replace(params, NVARM=1, NMAX=iters, STOP_TOL=0,
                             IN=min(params.IN, 46), JN=min(params.JN, 22))
     try:

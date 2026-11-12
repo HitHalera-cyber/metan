@@ -37,7 +37,7 @@ C_MU, C1, C2, SIG_K, SIG_E, KAPPA = 0.09, 1.44, 1.92, 1.0, 1.3, 0.41
 
 
 @jit
-def edm_step(A, INT, AE1, AW1, AN1, AS1, EK, CA, CB, IN, JN):
+def edm_step(A, INT, AE1, AW1, AN1, AS1, EK, CA, CB, IN, JN, TC):
     """Горение: в узле сгорает доля q = Da/(1+Da) от того, что может
     сгореть, Da = CA·ρ·(ε/k)/aP. Это точное решение уравнения переноса
     горючего с линейным стоком w = CA·ρ·(ε/k)·min(YF, YO/s) при той же
@@ -49,6 +49,8 @@ def edm_step(A, INT, AE1, AW1, AN1, AS1, EK, CA, CB, IN, JN):
             if not INT[I, J]:
                 continue
             aP = AE1[I, J] + AW1[I, J] + AN1[I, J] + AS1[I, J]
+            if TC.shape[0] > 1:
+                aP += TC[I, J]          # нестационарный расчёт: ρ/Δt
             if aP <= 0.:
                 continue
             rho = A[I, J, NRO3]
@@ -113,7 +115,7 @@ def production(A, INT, X1, X2, R, PK, IN, JN, NCORD):
 
 @jit
 def keps_step(A, INT, AE, AW, AN, AS, AE1, AW1, AN1, AS1, PK, K, E, YW,
-              IN, JN, RELAX, KMIN, EMIN):
+              IN, JN, RELAX, KMIN, EMIN, TC, KO, EO):
     """Один проход Гаусса-Зейделя для k и ε. Конвекция - те же
     коэффициенты против потока, что у остальных величин (AE..AS),
     диффузия - (AE1 − AE)/σ. Узлы у стенки (YW > 0): ε задаётся
@@ -135,6 +137,10 @@ def keps_step(A, INT, AE, AW, AN, AS, AE1, AW1, AN1, AS1, PK, K, E, YW,
             num = (ce * K[I + 1, J] + cw * K[I - 1, J] + cn * K[I, J + 1]
                    + cs * K[I, J - 1] + PK[I, J])
             den = ce + cw + cn + cs + rho * ek
+            tr = TC.shape[0] > 1        # нестационарный расчёт
+            if tr:
+                num += TC[I, J] * KO[I, J]
+                den += TC[I, J]
             if den > 0.:
                 kn = num / den
                 kn = k0 + RELAX * (kn - k0)
@@ -150,6 +156,9 @@ def keps_step(A, INT, AE, AW, AN, AS, AE1, AW1, AN1, AS1, PK, K, E, YW,
             num = (ce * E[I + 1, J] + cw * E[I - 1, J] + cn * E[I, J + 1]
                    + cs * E[I, J - 1] + C1 * ek * PK[I, J])
             den = ce + cw + cn + cs + C2 * rho * ek
+            if tr:
+                num += TC[I, J] * EO[I, J]
+                den += TC[I, J]
             if den > 0.:
                 en = num / den
                 en = e0 + RELAX * (en - e0)

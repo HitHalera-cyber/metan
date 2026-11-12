@@ -1,31 +1,27 @@
 """Уточнённые модели горения и турбулентности.
 
-Выбираются в разделе «Режим», как модель температуры:
-
-* «Модель горения» (Params.COMB):
-  0 - мгновенная (исходная): брутто-реакция в узле при T ≥ Tвоспл;
-  1 - вихревой распад (EDM, Магнуссен - Хьертагер): скорость горения
-      ограничена турбулентным перемешиванием, w = A·ρ·(ε/k)·min(gCH4, gO2/s);
-  2 - равновесная по смешению: состав и температура в узле - химическое
-      равновесие (9 веществ) при его доле горючих элементов.
-* «Модель турбулентности» (Params.TURB):
-  0 - алгебраическая (исходная);
-  1 - k–ε (Лаундер - Сполдинг) с пристеночными функциями.
+* Стационарный расчёт - в разделе «Режим» выбирается модель горения
+  (Params.COMB): 0 - мгновенная (исходная): брутто-реакция в узле при
+  T ≥ Tвоспл; 1 - вихревой распад (EDM, Магнуссен - Хьертагер): скорость
+  горения ограничена турбулентным перемешиванием,
+  w = A·ρ·(ε/k)·min(gCH4, gO2/s). Турбулентная вязкость - алгебраическая.
+* Нестационарный расчёт (Params.UNSTEADY = 1) - одна модель: k–ε
+  (Лаундер - Сполдинг, с пристеночными функциями) + EDM + равновесная
+  температура по доле сгоревшего.
 
 Решатель подключает модели в нескольких точках итерации (Solver._iterate);
-при COMB = 0 и TURB = 0 они не вызываются, и расчёт - в точности как
-в основной программе.
+при мгновенном горении и алгебраической вязкости они не вызываются, и
+расчёт - в точности как в основной программе.
 """
 
 import numpy as np
 
-from .. import thermo
-from ..kernels import (NMDF, NMFU1, NMFU2, NMOX1, NMOX2, NMPR1, NMPR2, NMU,
-                       NRO3, NV1)
+from ..kernels import NMU, NRO3, NV1
+
+
 from . import kernels as AK
 
-COMB_NAMES = {0: "мгновенная", 1: "вихревой распад (EDM)",
-              2: "равновесная по смешению"}
+COMB_NAMES = {0: "мгновенная", 1: "вихревой распад (EDM)"}
 TURB_NAMES = {0: "алгебраическая", 1: "k–ε"}
 
 # Постоянные моделей
@@ -38,69 +34,44 @@ RELAX_W = 0.3       # нижняя релаксация вихря при k-ε
 AVG_FRAC = 0.3      # доля последних итераций для осреднения
 
 
+def models(p):
+    """(горение, турбулентность) с учётом режима расчёта: в нестационарном -
+    всегда EDM + k-ε; в стационарном k-ε не используется."""
+    if int(getattr(p, "UNSTEADY", 0)):
+        return 1, 1
+    return int(getattr(p, "COMB", 0)), 0
+
+
 def temperature_mode(p):
     """Модель температуры, которая на самом деле используется: при EDM -
-    равновесная, умноженная на долю сгоревшего (3); при равновесном горении -
-    равновесная (2); иначе - выбранная (TMODEL)."""
-    comb = int(getattr(p, "COMB", 0))
+    равновесная, умноженная на долю сгоревшего (3); иначе - выбранная
+    (TMODEL: 0 - исходная, 2 - равновесная)."""
+    comb, _ = models(p)
     if comb == 1:
         return 3
-    if comb == 2:
-        return 2
     return int(p.TMODEL)
 
 
 def active(p):
-    return int(getattr(p, "COMB", 0)) != 0 or int(getattr(p, "TURB", 0)) != 0
+    return models(p) != (0, 0)
 
 
 def describe(p):
-    return "горение - %s, турбулентность - %s" % (
-        COMB_NAMES[int(p.COMB)], TURB_NAMES[int(p.TURB)])
-
-
-_EQ_CACHE = {}
-
-
-def equilibrium_table(P, h_fuel, n=401):
-    """Равновесные состав (9 веществ) и T по доле горючих элементов f."""
-    key = (float(P), float(h_fuel), n)
-    if key in _EQ_CACHE:
-        return _EQ_CACHE[key]
-    fs = np.linspace(0., 1., n)
-    Ys = np.zeros((n, len(thermo.SPECIES)))
-    Ts = np.zeros(n)
-    order = np.argsort(np.abs(fs - 0.2))
-    done = {}
-    for k in order:
-        f = fs[k]
-        near = min(done, key=lambda q: abs(q - f)) if done else None
-        T0 = done[near] if near is not None else 3000.
-        try:
-            if f <= 0. or f >= 1.:
-                raise np.linalg.LinAlgError
-            T, Y, _ = thermo.equilibrium_HP(f * h_fuel, P,
-                                            thermo.elements_of(f), T0)
-        except np.linalg.LinAlgError:
-            # чистый O2 или чистый CH4 - реагировать нечему
-            Y = np.zeros(len(thermo.SPECIES))
-            Y[0], Y[1] = f, 1. - f
-            T = 293.
-        Ys[k], Ts[k] = Y, T
-        done[f] = T
-    _EQ_CACHE[key] = (fs, Ys, Ts)
-    return _EQ_CACHE[key]
+    comb, turb = models(p)
+    return "%s; горение - %s, турбулентность - %s" % (
+        "нестационарный" if int(getattr(p, "UNSTEADY", 0)) else
+        "стационарный", COMB_NAMES[comb], TURB_NAMES[turb])
 
 
 class Refined:
     """Состояние уточнённых моделей для одного варианта расчёта."""
 
-    def __init__(self, s):
+    def __init__(self, s, unsteady=False):
         self.s = s
         p = s.p
-        self.comb = int(p.COMB)
-        self.turb = int(p.TURB)
+        self.comb, self.turb = models(p)
         self.edm_a = float(p.EDM_A)
+        self.unsteady = unsteady
         IN, JN = s.IN, s.JN
         shape = (IN + 2, JN + 2)
         INT = np.zeros(shape, dtype=np.bool_)
@@ -117,11 +88,13 @@ class Refined:
         for I in range(1, IN + 1):
             self.LM[I, :] = L_MIX * 2 * (X2[s.JA3] if I <= s.IC2 else X2[JN])
         self.EK = np.zeros(shape)
+        # нестационарный расчёт: ρ/Δt и k, ε на предыдущем шаге по времени
+        # (массивы 1×1 - стационарный расчёт)
+        self.TC = np.zeros((1, 1))
+        self.KO = np.zeros((1, 1))
+        self.EO = np.zeros((1, 1))
         if self.turb == 1:
             self._keps_init()
-        if self.comb == 2:
-            fs, Ys, Ts = equilibrium_table(p.P, p.H)
-            self._eq = (fs, Ys)
         self._mu_prev = None
         self._avg = None
         self._avg_cnt = 0
@@ -184,6 +157,24 @@ class Refined:
         self.BTYPE, self.BSRC, self.YW = BTYPE, BSRC, YW
         self.PK = np.zeros(shape)
 
+    def init_from_mu(self):
+        """k и ε, согласованные с текущей (алгебраической) вязкостью:
+        μт = Cμ^0.25·ρ·√k·l  ⇒  k = (μт/(Cμ^0.25·ρ·l))², ε = Cμ^0.75·k^1.5/l.
+        Нестационарный расчёт начинается с установившегося поля - так
+        турбулентность в начале согласована с течением."""
+        s = self.s
+        n1, n2 = s.IN + 1, s.JN + 1
+        mu = s.A[:n1, :n2, NMU]
+        rho = np.maximum(s.A[:n1, :n2, NRO3], 1e-6)
+        lm = np.maximum(self.LM[:n1, :n2], 1e-6)
+        k = (mu / (AK.C_MU ** 0.25 * rho * lm)) ** 2
+        k = np.maximum(k, 1e-6)
+        m = self.INT[:n1, :n2]
+        self.K[:n1, :n2] = np.where(m, k, self.K[:n1, :n2])
+        e = AK.C_MU ** 0.75 * k ** 1.5 / lm
+        self.E[:n1, :n2] = np.where(m, e, self.E[:n1, :n2])
+        self._mu_prev = None
+
     def state(self):
         """Что нужно сохранить, чтобы «Продолжить» досчитывал с того же
         места (k и ε)."""
@@ -231,7 +222,9 @@ class Refined:
                       s.IN, s.JN, int(s.NCORD))
         AK.keps_step(s.A, self.INT, s.AE, s.AW, s.AN, s.AS,
                      s.AE1, s.AW1, s.AN1, s.AS1, self.PK,
-                     self.K, self.E, self.YW, s.IN, s.JN, 0.6, 1e-6, 1e-4)
+                     self.K, self.E, self.YW, s.IN, s.JN,
+                     1.0 if self.unsteady else 0.6, 1e-6, 1e-4,
+                     self.TC, self.KO, self.EO)
         AK.keps_bounds(self.K, self.E, self.INT, self.BTYPE, self.BSRC,
                        self.KIN, self.EIN, s.IN, s.JN)
 
@@ -239,9 +232,9 @@ class Refined:
         s = self.s
         if self.comb == 1:
             AK.edm_step(s.A, self.INT, s.AE1, s.AW1, s.AN1, s.AS1, self.EK,
-                        self.edm_a, 0.0, s.IN, s.JN)
-        elif self.comb == 2:
-            self._equilibrium_composition()
+                        self.edm_a, 0.0, s.IN, s.JN, self.TC)
+        if self.unsteady:
+            return          # осреднение по времени - в решателе
         # накопление полей для осреднения (если решение не установится)
         limit = getattr(s, "_limit", s.p.NMAX)
         window = int(AVG_FRAC * s.p.NMAX)
@@ -262,33 +255,3 @@ class Refined:
             return
         s.A[...] = self._avg / self._avg_cnt
         self.averaged = self._avg_cnt
-
-    def _equilibrium_composition(self):
-        """Состав в каждом узле - равновесный при его доле горючих
-        элементов f (атомы O и H, которых нет среди 7 веществ модели,
-        отнесены к O2 и H2 - элементный баланс сохраняется)."""
-        s = self.s
-        A = s.A
-        n1, n2 = s.IN + 1, s.JN + 1
-        idx = (NMFU1, NMOX1, NMPR1, NMPR2, NMOX2, NMDF, NMFU2)
-        Y = A[:n1, :n2, :][:, :, list(idx)]
-        prod = Y[:, :, 2:].sum(axis=2)
-        fuel = Y[:, :, 0] + 0.2034 * prod
-        tot = Y.sum(axis=2)
-        mask = (tot > 0) & np.isfinite(tot)
-        f = np.where(mask, fuel / np.where(mask, tot, 1), 0.)
-        f = np.nan_to_num(np.clip(f, 0., 1.))
-        fs, Ys = self._eq
-        n = len(fs) - 1
-        q = f * n
-        k0 = np.clip(q.astype(int), 0, n - 1)
-        w = (q - k0)[:, :, None]
-        Yeq = Ys[k0] * (1 - w) + Ys[k0 + 1] * w           # 9 веществ
-        g = {sp: Yeq[:, :, i] for i, sp in enumerate(thermo.SPECIES)}
-        new = {NMFU1: g["CH4"], NMOX1: g["O2"] + g["O"], NMPR1: g["CO2"],
-               NMPR2: g["H2O"], NMOX2: g["CO"], NMDF: g["H2"] + g["H"],
-               NMFU2: g["OH"]}
-        for k, v in new.items():
-            old = A[:n1, :n2, k]
-            A[:n1, :n2, k] = np.where(mask, old + RELAX_EQ * (v * tot - old),
-                                      old)

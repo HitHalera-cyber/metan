@@ -39,12 +39,20 @@ def main(argv=None):
                          "(5 вариантов α, узлы сетки из BLOCK DATA)")
     ap.add_argument("--dump-params", metavar="ФАЙЛ",
                     help="записать параметры в JSON и выйти")
+    ap.add_argument("--json-in", metavar="ФАЙЛ",
+                    help="параметры из JSON (программный интерфейс metan.api)")
+    ap.add_argument("--json-out", metavar="ФАЙЛ",
+                    help="результаты в JSON (для другой программы)")
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args(argv)
 
     d = (Params.fortran() if a.fortran else Params()).to_dict()
     if a.params:
         d.update(Params.load(a.params).to_dict())
+    if a.json_in:
+        import json
+        with open(a.json_in, encoding="utf-8") as fh:
+            d.update(json.load(fh))
     for s in a.set:
         if "=" not in s:
             ap.error("--set ожидает ИМЯ=ЗНАЧЕНИЕ, получено: %s" % s)
@@ -60,6 +68,16 @@ def main(argv=None):
     if a.dump_params:
         params.save(a.dump_params)
         print("Параметры записаны в", a.dump_params)
+        return 0
+
+    if a.json_out:
+        from . import api
+        import json
+        out = api.run(params, progress=None if a.quiet else _progress)
+        with open(a.json_out, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False, indent=2)
+        if not a.quiet:
+            sys.stderr.write("\nЗаписано: %s\n" % a.json_out)
         return 0
 
     from .solver import Solver

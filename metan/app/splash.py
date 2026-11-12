@@ -13,6 +13,7 @@
 import math
 import random
 import gc
+import os
 import threading
 import time
 
@@ -512,24 +513,19 @@ def _warmup(status):
     Solver(Params(NVARM=1, NMAX=2, NPRINT=1), track_history=False).run()
     # ядра уточнённых моделей (EDM, k-ε) и таблицы равновесия - тоже
     # заранее, а не при первом выборе модели в фоновом потоке
-    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, COMB=1, TURB=1),
+    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, COMB=1),
            track_history=False).run()
-    Solver(Params(NVARM=1, NMAX=2, NPRINT=1, COMB=2),
+    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, UNSTEADY=1, T_AVG=0.5,
+                  T_SPIN=0.1, DT_STEPS=10, INNER=2),
            track_history=False).run()
     status("Запуск интерфейса…")
     for mod in ("customtkinter", "metan.app.main"):
         importlib.import_module(mod)
 
 
-def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
-    """Показать заставку, пока идёт подготовка. key="none" - без заставки
-    (подготовка всё равно выполняется)."""
-    if key not in STORIES:
-        try:
-            _warmup(lambda s: None)
-        except Exception:
-            pass
-        return
+def _show(key, mode, min_time, max_time, poll):
+    """Окно заставки (в своём процессе). poll() -> (сообщение, номер шага,
+    готово ли)."""
     import tkinter as tk
     from PIL import ImageTk
 
@@ -542,6 +538,10 @@ def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
     root = tk.Tk()
     root.overrideredirect(True)
     root.configure(background=BG)
+    try:
+        root.attributes("-topmost", True)
+    except tk.TclError:
+        pass
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     fw, fh = getattr(story, "size", (W, H))
     scale = max(2, min(SCALE, int(min(sw * 0.6 / fw, sh * 0.6 / fh))))
@@ -556,46 +556,120 @@ def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
                     highlightthickness=0)
     bar.pack()
     fill = bar.create_rectangle(0, 0, 0, 4, fill=ACC, width=0)
-    state = {"done": False, "msg": "Запуск…", "step": 0}
+    state = {"skip": False, "n": 0}
+    t0 = time.monotonic()
+    holder = {}
+
+    trace = os.environ.get("METAN_SPLASH_TRACE")   # проверка плавности
+
+    def tick():
+        try:
+            _tick()
+        except Exception:
+            # любая ошибка заставки не должна мешать запуску программы
+            root.destroy()
+
+    def _tick():
+        t = time.monotonic() - t0
+        if trace:
+            with open(trace, "a") as tf:
+                tf.write("%.4f\n" % t)
+        img = story.frame(t % story.length).resize((fw * scale, fh * scale),
+                                                    Image.NEAREST)
+        holder["img"] = ImageTk.PhotoImage(img)
+        lab.configure(image=holder["img"])
+        msg, step, done = poll()
+        status.set(msg)
+        k = min(1.0, step / 4 + 0.05 * (t % 1))
+        bar.coords(fill, 0, 0, int((w - 40) * k), 4)
+        if (done and (t >= min_time or state["skip"])) or t > max_time:
+            root.destroy()
+            return
+        # кадры - по часам, а не «через N мс после предыдущего»: темп
+        # ровный, даже если кадр рисовался дольше обычного
+        state["n"] += 1
+        nxt = t0 + state["n"] / FPS
+        delay = int(max(1, (nxt - time.monotonic()) * 1000))
+        if delay <= 1:
+            state["n"] = int((time.monotonic() - t0) * FPS)
+        root.after(delay, tick)
+
+    def skip(_e=None):
+        state["skip"] = True
+
+    root.bind("<Button-1>", skip)
+    root.bind("<Key>", skip)
+    root.after(10, tick)
+    root.mainloop()
+
+
+def _splash_child(key, mode, min_time, max_time, q, done):
+    """Процесс заставки: свой интерпретатор Python, поэтому анимация не
+    ждёт загрузку библиотек и компиляцию ядра в основном процессе (они
+    держат глобальную блокировку интерпретатора GIL)."""
+    import queue
+    st = {"msg": "Запуск…", "step": 0}
+
+    def poll():
+        try:
+            while True:
+                st["msg"] = q.get_nowait()
+                st["step"] += 1
+        except queue.Empty:
+            pass
+        except (OSError, EOFError):
+            pass
+        return st["msg"], st["step"], done.is_set()
+    _show(key, mode, min_time, max_time, poll)
+
+
+def run_splash(key="city", min_time=4.0, max_time=180, mode="dark"):
+    """Показать заставку, пока идёт подготовка (в основном процессе).
+    Заставка - в отдельном процессе; если его запустить не удалось - в
+    этом же процессе, а подготовка - в фоновом потоке."""
+    if key not in STORIES:
+        try:
+            _warmup(lambda s: None)
+        except Exception:
+            pass
+        return
+    import multiprocessing as mp
+    try:
+        ctx = mp.get_context("spawn")
+        q = ctx.Queue()
+        done = ctx.Event()
+        proc = ctx.Process(target=_splash_child,
+                           args=(key, mode, min_time, max_time, q, done),
+                           daemon=True)
+        proc.start()
+    except Exception:
+        proc = None
+    if proc is not None:
+        try:
+            _warmup(q.put)
+        except Exception:
+            pass
+        done.set()
+        # заставка сама закроется не раньше min_time от своего запуска;
+        # дольше не ждём
+        proc.join(min_time + 5.0)
+        if proc.is_alive():
+            proc.terminate()
+        return
+    # запасной путь: заставка здесь, подготовка - в потоке
+    st = {"msg": "Запуск…", "step": 0, "done": False}
 
     def set_status(s):
-        state["msg"] = s
-        state["step"] += 1
+        st["msg"] = s
+        st["step"] += 1
 
     def work():
         try:
             _warmup(set_status)
         except Exception:
             pass
-        state["done"] = True
+        st["done"] = True
 
     threading.Thread(target=work, daemon=True).start()
-    t0 = time.monotonic()
-    holder = {}
-
-    def tick():
-        t = time.monotonic() - t0
-        img = story.frame(t % story.length).resize((fw * scale, fh * scale),
-                                                    Image.NEAREST)
-        holder["img"] = ImageTk.PhotoImage(img)
-        lab.configure(image=holder["img"])
-        status.set(state["msg"])
-        k = min(1.0, state["step"] / 4 + 0.05 * (t % 1))
-        bar.coords(fill, 0, 0, int((w - 40) * k), 4)
-        # сборка мусора - только здесь, в главном потоке (см. app/main.py)
-        if int(t * 2) != state.get("gc"):
-            state["gc"] = int(t * 2)
-            gc.collect()
-        if (state["done"] and (t >= min_time or state.get("skip"))) or t > max_time:
-            root.destroy()
-            return
-        root.after(int(1000 / FPS), tick)
-
-    def skip(_e=None):
-        if state["done"]:
-            state["skip"] = True
-
-    root.bind("<Button-1>", skip)
-    root.bind("<Key>", skip)
-    root.after(10, tick)
-    root.mainloop()
+    _show(key, mode, min_time, max_time,
+          lambda: (st["msg"], st["step"], st["done"]))
