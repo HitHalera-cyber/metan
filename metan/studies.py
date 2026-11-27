@@ -20,6 +20,9 @@ OPT_PARAMS = ["DKR", "DCMB", "DOGOR", "DELGOR", "DKAR", "DOOK", "DELOK",
               "DKS", "DELKAR", "ALKS", "TGY"]
 
 
+GEOMETRY_PARAMS = tuple(OPT_PARAMS)
+
+
 def _workers():
     return max(1, min(4, os.cpu_count() or 1))
 
@@ -75,15 +78,36 @@ class SeriesResult:
 def run_series(params, name, values, progress=None, cancel=None):
     """Расчёт при каждом значении параметра name (все варианты α из params).
     progress(done, total); расчёты идут параллельно в несколько потоков."""
+    rows = _run_series(params, name, values, summarize, progress, cancel)
+    return SeriesResult(name=name, values=[value for value, _, _ in rows],
+                        rows=rows)
+
+
+@dataclass
+class GeometrySeriesResult:
+    name: str
+    rows: list           # [(value, VariantResult|None, error)]
+
+
+def run_geometry_series(params, name, values, progress=None, cancel=None):
+    """Сохранить поля для каждого значения геометрического параметра при одном α."""
+    if name not in GEOMETRY_PARAMS:
+        raise ValueError("Выберите геометрический параметр.")
+    params = dataclasses.replace(params, NVARM=1)
+    rows = _run_series(params, name, values, lambda r: r.variants[0],
+                       progress, cancel)
+    return GeometrySeriesResult(name, rows)
+
+
+def _run_series(params, name, values, result, progress, cancel):
     values = list(values)
-    res = SeriesResult(name=name, values=values)
     slots = [None] * len(values)
 
     def one(idx, val):
         try:
             p = with_value(params, name, val)
             r = Solver(p, cancel=cancel, track_history=False).run()
-            return idx, summarize(r), None
+            return idx, result(r), None
         except Cancelled:
             raise
         except Exception as e:  # недопустимая геометрия и т.п.
@@ -98,8 +122,7 @@ def run_series(params, name, values, progress=None, cancel=None):
             done += 1
             if progress:
                 progress(done, len(values))
-    res.rows = slots
-    return res
+    return slots
 
 
 # ----------------------------------------------------------------------
@@ -299,13 +322,12 @@ class GridStudy:
     params: list            # Params на каждой сетке
     results: list           # Results на каждой сетке
     gcis: list              # GCI по каждой тройке соседних сеток
-    metric: str             # "φк" или "φβ"
+    metric: str             # "φк"
     ratio: float
     target: float
 
     def value(self, v):
-        return v.extra.get("FIbeta", np.nan) if self.metric == "φβ" \
-            else v.fkomp
+        return v.fkomp
 
     @property
     def done(self):
@@ -318,17 +340,15 @@ def grid_study(params, start=(100, 44), ratio=2 ** 0.5, levels=5,
                target=2.0, progress=None, cancel=None):
     """Сетки 100×44, 141×62, 200×88, 283×124, 400×176 (шаг меньше в √2
     раз): после каждой, начиная с третьей, - GCI по трём последним; стоп,
-    когда GCI < target %. При равновесном горении φк ≈ 1 на любой сетке,
-    поэтому сходимость оценивается по φβ. Первые три сетки считаются
+    когда GCI для φк < target %. Первые три сетки считаются
     параллельно, остальные - по одной."""
     params = dataclasses.replace(params.resolved(), NVARM=1, GRID_AUTO=1)
-    metric = "φβ" if int(getattr(params, "COMB", 0)) == 2 else "φк"
     ps = []
     for k in range(levels):
         q = dataclasses.replace(params, IN=int(round(start[0] * ratio ** k)),
                                 JN=int(round(start[1] * ratio ** k)))
         ps.append(_limit_iters(q))
-    study = GridStudy([], [], [], metric, ratio, target)
+    study = GridStudy([], [], [], "φк", ratio, target)
     state = {}
 
     def run(idx, p):

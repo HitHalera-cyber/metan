@@ -147,7 +147,7 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
             if TZ < 0.0:
                 TZ = 0.0
             if not (TQ <= 1.e-10):
-                if TMODE == 2 or TMODE == 3:
+                if TMODE == 2:
                     zs = ZOKD + AZK * 0.2034 + A[I, J, NMFU1]
                     fz = (AZK * 0.2034 + A[I, J, NMFU1]) / zs if zs > 0. else 0.
                     # «not >=» ловит и NaN (расходящийся расчёт): иначе
@@ -167,20 +167,6 @@ def viscos(A, X1, R, IMIN, IMAX, PKS,
                     ct = TAB_CP[k0] * (1. - w) + TAB_CP[k0 + 1] * w
                     ht = TAB_H[k0] * (1. - w) + TAB_H[k0 + 1] * w
                     A[I, J, NT] = Tt + (A[I, J, NMU1] - ht) / max(ct, 0.5)
-                    if TMODE == 3:
-                        # горение с конечной скоростью (EDM): тепло
-                        # выделилось в доле c от возможного при таком
-                        # составе элементов
-                        lim = A[I, J, NMFU1]
-                        if A[I, J, NMOX1] / 3.9166 < lim:
-                            lim = A[I, J, NMOX1] / 3.9166
-                        limu = fz * zs
-                        if (1. - fz) * zs / 3.9166 < limu:
-                            limu = (1. - fz) * zs / 3.9166
-                        c = 1. - lim / limu if limu > 1e-12 else 1.
-                        if c < 0.:
-                            c = 0.
-                        A[I, J, NT] = 293. + c * (A[I, J, NT] - 293.)
                 elif TMODE == 1:
                     A[I, J, NT] = (TZ / TQ + 293.) * (
                         1.0 + 0.2 * _ramp(XXX, 0.2, TW)
@@ -418,19 +404,10 @@ def _rel_change(new, old):
 def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
         AE, AW, AN, AS, AE1, AW1, AN1, AS1, UKS, FKS, TKS, RSDU,
         IN, INM, JN, JNM, JA, JA1, JA2, JA3, JB, JB1, JC, JC1, JZ, JZ1,
-        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0,
-        REACT=1, W_RELAX=1.0, TRANS=0, TC=None, AO=None, RLW=0.1):
+        IC, IC1, IC2, NITER, NPRINT, NVAR, NCORD, ROM1, IGN_I2, OMEGA=1.0):
     # IGN_I2 - последний узел зоны поджига по длине (в оригинале 11 = IC2+1)
     # OMEGA - параметр верхней релаксации для ψ (1.0 - как в оригинале,
     # чистый Гаусс-Зейдель; 1 < OMEGA < 2 - метод SOR, быстрее)
-    # REACT = 0 - мгновенная реакция выключена (горение считает модель EDM
-    # или равновесная); W_RELAX - нижняя релаксация вихря (1 - как в
-    # оригинале, меньше - при модели k-ε)
-    # TRANS = 1 - нестационарный расчёт: в уравнения вихря, закрутки,
-    # компонентов и энтальпии добавлен член производной по времени
-    # ρ·(φ − φⁿ)/Δt (неявная схема), TC = ρ/Δt в узле, AO - поля на
-    # предыдущем шаге по времени; RLW - нижняя релаксация вихря (0.1 - как
-    # в оригинале). При TRANS = 0 расчёт - в точности прежний.
     # ---------- уравнение для вихря (NW) ----------
     if not (NITER <= NPRINT and NVAR == 1):
         RL = 0.1
@@ -469,12 +446,9 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                             + SOURCE)
                     ADNM = AAE + AAW + AAN + AAS + A[I, J, NMU] * \
                         (BBE + BBW + BBN + BBS)
-                    if TRANS:
-                        ANUM = ANUM + RSO * TC[I, J] * AO[I, J, NW]
-                        ADNM = ADNM + RSO * TC[I, J]
                     if ADNM != 0.:
                         A[I, J, NW] = ANUM / ADNM
-                        A[I, J, NW] = Z + (A[I, J, NW] - Z) * RLW
+                        A[I, J, NW] = Z + (A[I, J, NW] - Z) * RL
                 else:
                     # метки 111 / 113: вихрь на угловых точках
                     RISO = 1. / R[J] / R[J]
@@ -489,13 +463,13 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                             + BBN * A[I, J + 1, NF] + BBS * A[I, J - 1, NF])
                     ADNM = BBE + BBW + BBN + BBS
                     A[I, J, NW] = A[I, J, NF] * ADNM - ANUM
-                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * RLW
+                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * RL
                 # 114
                 RS = _rel_change(A[I, J, NW], Z)
                 if abs(RS) > abs(RSDU[NW]):
                     RSDU[NW] = RS
                 if NITER >= 20:
-                    A[I, J, NW] = Z + (A[I, J, NW] - Z) * W_RELAX
+                    A[I, J, NW] = Z + (A[I, J, NW] - Z)
                 if A[I, J, NW] >= 1.e+14:
                     A[I, J, NW] = 1.e+14
                 if A[I, J, NW] <= -1.e+14:
@@ -568,9 +542,6 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
             ADNM = (AE[I, J] + AW[I, J] + AN[I, J] + AS[I, J] + BBE / R[J] ** 2
                     + BBW / R[J] ** 2 + BBN / R[J + 1] ** 2
                     + BBS / R[J - 1] ** 2)
-            if TRANS:
-                ANUM = ANUM + TC[I, J] * AO[I, J, NMU2]
-                ADNM = ADNM + TC[I, J]
             if ADNM == 0.:
                 continue
             A[I, J, NMU2] = ANUM / ADNM
@@ -604,11 +575,7 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                         + an * A[I, J + 1, K]
                         + as_ * A[I, J - 1, K])
                 ANUM = ANUM + 0.0  # SORCE для K >= 3 равен 0
-                if TRANS:
-                    A[I, J, K] = (ANUM + TC[I, J] * AO[I, J, K]) / \
-                        (ADNM + TC[I, J])
-                else:
-                    A[I, J, K] = ANUM / ADNM
+                A[I, J, K] = ANUM / ADNM
                 if K == NMU1:
                     RS = _rel_change(A[I, J, K], Z)
                     if abs(RS) > abs(RSDU[K]):
@@ -642,8 +609,6 @@ def eqn(A, X1, X2, R, IMIN, IMAX, BE, BW, BN, BS,
                 react = True        # GO TO 33: принудительное зажигание
             elif A[I, J, NT] < ROM1:
                 react = False       # GO TO 304
-            if REACT == 0:
-                react = False
             if react:
                 # 33
                 if A[I, J, NMFU1] <= 1.e-20:

@@ -17,8 +17,8 @@ from ..params import Params
 from ..solver import Cancelled, Solver
 from .pages import (AnimationPage, ConvergencePage, FieldsPage, GeometryPage,
                     ProfilesPage)
-from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
-                     SeriesPage, open_folder)
+from .pages2 import (ComparePage, GeometryAnimationPage, OptimizePage,
+                     ProtocolPage, SeriesPage, open_folder)
 from .sidebar import Sidebar
 from .theme import SANS, c, pal
 from .widgets import (Canvas, Flow, Table, Tooltip, tabs, button, caps, entry, font, label,
@@ -26,15 +26,13 @@ from .widgets import (Canvas, Flow, Table, Tooltip, tabs, button, caps, entry, f
 
 # Панель результатов справа: обозначение -> пояснение (при наведении)
 # (обозначение, размерность; «–» - безразмерная величина)
-RIGHT_KEYS = (("φк", "–"), ("φβ", "–"), ("Km", "–"), ("β", "м/с"),
+RIGHT_KEYS = (("φк", "–"), ("Km", "–"), ("β", "м/с"),
               ("ṁ", "кг/с"), ("wг", "м/с"), ("wок", "м/с"), ("N", "итер."),
               ("Tвых", "K"), ("gCH4 вых", "–"), ("gO2 вых", "–"),
               ("gCO2 вых", "–"))
 RIGHT_HELP = {
     "φк": "Коэффициент полноты сгорания в камере: √(сгоревший CH4 / CH4, "
           "который мог сгореть). 1 - сгорело всё возможное.",
-    "φβ": "Коэффициент расходного комплекса по смешению: среднерасходное "
-          "β(α местного) на выходе, отнесённое к β(α).",
     "Km": "Массовое соотношение компонентов (O2/CH4), Km = 4·α.",
     "β": "Расходный комплекс β(α) - характеристическая скорость.",
     "ṁ": "Расход топлива через сопло ṁ = pк·Fкр/β.",
@@ -55,8 +53,8 @@ def _fmt_time(sec):
     return "%.1f ч" % (sec / 3600)
 
 
-PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
-         SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
+PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage,
+         GeometryAnimationPage, GeometryPage, SeriesPage, OptimizePage, ComparePage, ProtocolPage]
 
 
 def main_thread_gc():
@@ -93,7 +91,7 @@ class App(ctk.CTk):
         self.results = None
         self.variant_idx = 0
         self.runs = []
-        self.series = self.opt = self.gridcheck = None
+        self.series = self.opt = None
         self.gridstudy = None
         self.preview, self.preview_msgs = None, []
         self.outdir = tk.StringVar(value=self.cfg.get("outdir")
@@ -216,9 +214,8 @@ class App(ctk.CTk):
         return ("Вариант α = %.2f.\n"
                 "φк = %.4f — коэффициент полноты сгорания "
                 "(1 — сгорело всё, что могло сгореть).\n"
-                "φβ = %.4f — коэффициент расходного комплекса по смешению.\n"
                 "Нажмите, чтобы показать этот вариант."
-                % (a, v.fkomp, v.extra.get("FIbeta", float("nan"))))
+                % (a, v.fkomp))
 
     # ------------------------------------------------------------ центр
     def _workspace(self):
@@ -335,7 +332,6 @@ class App(ctk.CTk):
             val = v.values
             self.res_caps.configure(text="РЕЗУЛЬТАТ · α = %.2f" % val["ALFA"])
             data = {"φк": "%.5f" % v.fkomp,
-                    "φβ": "%.4f" % v.extra.get("FIbeta", float("nan")),
                     "Km": "%.2f" % val["KM"], "β": "%.1f" % val["BETA"],
                     "ṁ": "%.5f" % val["Ms"],
                     "wг": "%.1f" % val["Vgor"],
@@ -501,8 +497,6 @@ class App(ctk.CTk):
         v = r.variants[0]
         if v.diverged or v.settled is not False:
             return None
-        if int(getattr(r.params, "UNSTEADY", 0)):
-            return None         # нестационарный - только новый расчёт
         return v
 
     def _gc_tick(self):
@@ -541,11 +535,9 @@ class App(ctk.CTk):
 
         def job(progress, cancel):
             def prog(nvar, nvarm, niter, nmax):
-                what = "шаг по времени" if prm.UNSTEADY and \
-                    nmax != prm.NMAX else "итерация"
                 progress(((nvar - 1) + niter / nmax) / nvarm,
-                         "вариант %d/%d · %s %d/%d" % (nvar, nvarm, what,
-                                                      niter, nmax))
+                         "вариант %d/%d · итерация %d/%d" %
+                         (nvar, nvarm, niter, nmax))
             res = Solver(prm, progress=prog, cancel=cancel,
                          snapshot_every=snap, keep_partial=True,
                          resume=resume).run()
@@ -592,8 +584,7 @@ class App(ctk.CTk):
         cost = getattr(self.sidebar, "_node_cost", None)
         if not est or not cost:
             return True
-        extra = self.sidebar._unsteady_iters()[1] if prm.UNSTEADY else 0
-        n = (min(est["n_req"], prm.NMAX) + extra) * prm.NVARM
+        n = min(est["n_req"], prm.NMAX) * prm.NVARM
         sec = n * prm.IN * prm.JN * cost
         if sec < 120:
             return True
@@ -615,12 +606,12 @@ class App(ctk.CTk):
             filetypes=[("Документ Word", "*.docx")])
         if not path:
             return
-        res, series, opt, gc = self.results, self.series, self.opt, self.gridcheck
+        res, series, opt = self.results, self.series, self.opt
 
         def job(progress, cancel):
             from .. import report
             progress(0.3, "Отчёт: построение рисунков…")
-            return report.build(path, res, series=series, opt=opt, gridcheck=gc)
+            return report.build(path, res, series=series, opt=opt)
 
         self.run_task(job, lambda p: self.status("Отчёт сохранён: " + p),
                       "Отчёт Word")

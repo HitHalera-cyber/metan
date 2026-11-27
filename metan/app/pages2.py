@@ -1,6 +1,5 @@
-"""Страницы исследований: серии, подбор, сравнение, проверка сетки, протокол."""
+"""Страницы исследований: серии, подбор, сравнение, протокол."""
 
-import dataclasses
 import os
 import pickle
 import subprocess
@@ -14,7 +13,7 @@ import numpy as np
 from .. import analysis, plotting, studies
 from ..kernels import NT
 from ..solver import VAR_NAMES
-from .pages import FIELD_NAMES, FIELD_ORDER, PARAM_META, Page, _num
+from .pages import FIELD_NAMES, FIELD_ORDER, PARAM_META, AnimationPage, Page, _num
 from .theme import c, pal
 from .widgets import (Flow, Plot, Table, button, caps, check, entry, label, option,
                       segmented)
@@ -206,6 +205,106 @@ class SeriesPage(Page):
             self.metric.get(), _short(s.name), len(s.rows),
             " · красным - разошедшиеся" if any(bad) else ""))
         self.table.set_rows(rows, bad)
+
+
+# ======================================================================
+class GeometryAnimationPage(AnimationPage):
+    title = "Анимация геометрии"
+
+    def __init__(self, master, app):
+        super().__init__(master, app, first_row=1)
+        self.series = None
+        self.pname = tk.StringVar(value=_plabel("DOOK"))
+        self.param_names = {_plabel(name): name for name in studies.GEOMETRY_PARAMS}
+        self.v0, self.v1 = tk.StringVar(), tk.StringVar()
+        self.points = tk.StringVar(value="9")
+        tb = self.toolbar()
+        option(tb, list(self.param_names), lambda _v: self._defaults(),
+               self.pname, width=295).pack(side="left")
+        for text, var, width in (("от", self.v0, 70), ("до", self.v1, 70),
+                                 ("кадров", self.points, 55)):
+            label(tb, text, 12, muted=True).pack(side="left", padx=(10, 4))
+            entry(tb, var, width).pack(side="left")
+        button(tb, "Рассчитать кадры", self.run, primary=True,
+               width=150).pack(side="right")
+        self.info = label(self, "", 12, anchor="w")
+        self.info.grid(row=4, column=0, sticky="ew")
+        self._defaults()
+
+    def _defaults(self):
+        name = self.param_names[self.pname.get()]
+        current = _num(self.app.sidebar.vars[name].get(), 1.0)
+        self.v0.set("%.6g" % (0.95 * current))
+        self.v1.set("%.6g" % (1.05 * current))
+
+    def run(self):
+        a, b = _num(self.v0.get()), _num(self.v1.get())
+        try:
+            count = int(self.points.get())
+            if a is None or b is None or not np.isfinite([a, b]).all() or a >= b:
+                raise ValueError("Границы должны быть числами, причём «от» меньше «до».")
+            if not 2 <= count <= 120:
+                raise ValueError("Укажите от 2 до 120 кадров.")
+            params = self.app.sidebar.params()
+        except ValueError as e:
+            messagebox.showerror(self.title, str(e))
+            return
+        name = self.param_names[self.pname.get()]
+        values = np.linspace(a, b, count)
+
+        def job(progress, cancel):
+            return studies.run_geometry_series(
+                params, name, values, cancel=cancel,
+                progress=lambda done, total: progress(
+                    done / total, "Расчёт кадров: %d из %d" % (done, total)))
+
+        def done(series):
+            self.series = series
+            self.refresh()
+            self.app.status("Расчёт кадров завершён")
+
+        self.pause()
+        self.app.run_task(job, done, self.title)
+
+    def frame_source(self):
+        return self.series
+
+    def frame_count(self, source):
+        return len(source.rows) if source is not None else 0
+
+    def frame(self, source, index):
+        value, variant, error = source.rows[index]
+        meta = PARAM_META[source.name]
+        caption = "%s = %.6g %s" % (_short(source.name), value, meta["unit"])
+        if variant is None:
+            return None, None, caption, error
+        if variant.diverged:
+            return None, None, caption, "Расчёт разошёлся"
+        return variant, variant.A, caption, None
+
+    def initial_frame(self, count):
+        return 0
+
+    def empty_message(self):
+        return ("Выберите размер камеры, диапазон и число кадров. "
+                "Все кадры рассчитываются при начальном α из панели слева.")
+
+    def refresh(self):
+        super().refresh()
+        if self.series is None:
+            self.info.configure(text="")
+            return
+        index = min(int(round(self.slider.get())), len(self.series.rows) - 1)
+        variant, _, _, error = self.frame(self.series, index)
+        if variant is None:
+            self.info.configure(text="Кадр %d/%d · %s" %
+                                (index + 1, len(self.series.rows), error))
+            return
+        self.info.configure(text=(
+            "Кадр %d/%d   φк = %.4f   Tвых = %.0f K%s" %
+            (index + 1, len(self.series.rows), variant.fkomp,
+             analysis.exit_summary(variant)["T"],
+             "   ·   решение не установилось" if variant.settled is False else "")))
 
 
 # ======================================================================
@@ -407,6 +506,7 @@ class ComparePage(Page):
         self.mode = tk.StringVar(value="Рядом")
         segmented(tb2, ["Рядом", "Разность B − A"], lambda _v: self.refresh(),
                   self.mode).pack(side="left", padx=8)
+        self.field_style_control(tb2)
         button(tb2, "Загрузить расчёт…", self.load, width=150).pack(side="right")
         button(tb2, "Сохранить текущий…", self.save, width=160).pack(
             side="right", padx=6)
@@ -478,7 +578,8 @@ class ComparePage(Page):
             for n, (v, t) in enumerate(((a, "A"), (b, "B"))):
                 ax = f.add_subplot(2, 1, n + 1)
                 m = plotting.draw(ax, v, k, fg=p["fg"], wall_color=p["muted"],
-                                  vrange=vr, stream=False)
+                                  vrange=vr, stream=False, style=self.field_style,
+                                  labels=self.field_style == "lines")
                 ax.set_title("%s: %s, α = %.2f" % (t, self.run_a.get() if n == 0
                                                    else self.run_b.get(),
                                                    v.values["ALFA"]), fontsize=10)
@@ -491,7 +592,8 @@ class ComparePage(Page):
             ax = f.add_subplot(111)
             x, r, D = analysis.difference(a, b, k)
             plotting.draw_difference(
-                ax, x, r, D, label="Δ " + VAR_NAMES[k],
+                ax, x, r, D, label="Δ " + VAR_NAMES[k], style=self.field_style,
+                fg=p["fg"],
                 colorbar_cb=lambda m, lab: f.colorbar(m, ax=ax, label=lab,
                                                       shrink=0.85))
             note = "" if analysis.same_grid(a, b) else \
@@ -501,7 +603,6 @@ class ComparePage(Page):
             self.plot.show()
         ea, eb = analysis.exit_summary(a), analysis.exit_summary(b)
         rows = [("φк", a.fkomp, b.fkomp),
-                ("φβ", a.extra.get("FIbeta", np.nan), b.extra.get("FIbeta", np.nan)),
                 ("ṁ, кг/с", a.values["Ms"], b.values["Ms"]),
                 ("Tвых, K", ea["T"], eb["T"])]
         rows += [("g%s вых" % n, ea[n], eb[n]) for n in ("CH4", "O2", "CO2")]
@@ -535,291 +636,6 @@ class ComparePage(Page):
             messagebox.showerror("Ошибка", "Не удалось прочитать файл:\n%s" % e)
             return
         self.app.add_run(res, os.path.basename(path))
-
-
-# ======================================================================
-class GridCheckPage(Page):
-    title = "Сетка ×2"
-
-    GOOD_GCI = 2.0       # %, ниже - сгущать дальше нет смысла
-
-    def __init__(self, master, app):
-        super().__init__(master, app)
-        tb = self.tb = self.toolbar()
-        self.kind = tk.StringVar(value=self.KINDS[0])
-        option(tb, list(self.KINDS), lambda _v: self._kind_changed(),
-               self.kind, 300).pack(side="left", padx=(0, 14))
-        self.opts = ctk.CTkFrame(tb, fg_color="transparent")
-        self.opts.pack(side="left")
-        label(self.opts, "Сеток", 12, muted=True).pack(side="left")
-        self.levels = tk.StringVar(value="3 (индекс GCI)")
-        option(self.opts, ["2", "3 (индекс GCI)"], None, self.levels, 150).pack(
-            side="left", padx=(6, 14))
-        label(self.opts, "интервал делится на", 12, muted=True).pack(side="left")
-        self.factor = tk.StringVar(value="2")
-        option(self.opts, ["2", "3"], None, self.factor, 60).pack(side="left",
-                                                                 padx=6)
-        button(tb, "Проверить", self.run, primary=True, width=130).pack(side="right")
-        self.last = None        # "check" / "study" - что показывать
-        self.verdict = label(
-            self, "Тот же расчёт на всё более мелких сетках. По трём сеткам "
-            "считается индекс сеточной сходимости GCI - насколько ещё может "
-            "измениться результат при сгущении; GCI < 2 % - сгущать дальше нет "
-            "смысла. Предел итераций на каждой сетке берётся по Nуст.", 12,
-            anchor="w", justify="left", wraplength=900)
-        self.verdict.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        # перенос строк - по ширине страницы (не самой подписи: иначе
-        # изменение переноса снова меняет её размер - бесконечный цикл)
-        self._wrap = None
-        self.bind("<Configure>", self._rewrap, add="+")
-        self.plot = Plot(self, app, figsize=(8, 3.5))
-        self.plot.grid(row=2, column=0, sticky="nsew")
-        self.table = Table(self, app, ["α", "Величина", "Сетка 1", "Сетка 2"],
-                           height=3, copy_button=True)
-        self.table.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
-        self.grid_rowconfigure(2, weight=3, minsize=200)
-        self.grid_rowconfigure(3, weight=1)
-
-    KINDS = ("Сгущение текущей сетки ×2 / ×3",
-             "Исследование от 100×44 до GCI < 2 %")
-
-    def _kind_changed(self):
-        # ряд кнопок раскладывает Flow (place), поэтому не pack_forget
-        if self.kind.get() == self.KINDS[0]:
-            if self.opts not in self.tb._spec:
-                self.opts.pack(side="left")
-                self.tb._schedule()
-        else:
-            self.tb.remove(self.opts)
-        if self.kind.get() == self.KINDS[1] and \
-                getattr(self.app, "gridstudy", None) is None:
-            self.verdict.configure(text=(
-                "Расчёт на сетках 100×44, 141×62, 200×88, 283×124, 400×176 "
-                "(шаг меньше в √2 раз), пока индекс сеточной сходимости GCI "
-                "по трём последним сеткам не станет меньше 2 % или разности "
-                "между сетками - меньше 1 % (уровень шума итераций). При "
-                "равновесном горении φк ≈ 1 на любой сетке, поэтому оценка "
-                "по φβ."))
-
-    def run(self):
-        try:
-            prm = self.app.sidebar.params()
-        except ValueError as e:
-            messagebox.showerror("Ошибка в параметрах", str(e))
-            return
-        if self.kind.get() == self.KINDS[1]:
-            return self.run_study(prm)
-        fac = int(self.factor.get())
-        lev = 3 if self.levels.get().startswith("3") else 2
-
-        def job(progress, cancel):
-            state = [0.0] * lev
-
-            def prog(idx, nvar, nvarm, niter, nmax):
-                state[idx] = ((nvar - 1) + niter / nmax) / nvarm
-                progress(min(state), "Сетки: " + ", ".join(
-                    "%.0f%%" % (x * 100) for x in state))
-            return studies.grid_check(prm, fac, progress=prog, cancel=cancel,
-                                      levels=lev)
-
-        def done(res):
-            self.app.gridcheck = res
-            self.last = "check"
-            self.refresh()
-
-        self.app.run_task(job, done, "Проверка на мелких сетках")
-
-    def run_study(self, prm):
-        if prm.NVARM > 1:
-            prm = dataclasses.replace(prm, NVARM=1)
-        if not messagebox.askyesno(
-                "Сеточное исследование",
-                "Расчёт на сетках 100×44, 141×62, 200×88, 283×124, 400×176 "
-                "(шаг меньше в √2 раз), пока GCI по трём последним сеткам не "
-                "станет меньше 2 %%. Считается один вариант (α = %.2f).\n\n"
-                "Это может занять от нескольких минут до получаса. "
-                "Продолжить?" % prm.ALFA):
-            return
-
-        def job(progress, cancel):
-            def prog(idx, levels, state):
-                done_ = sum(state.values())
-                progress(min(1., done_ / levels), "Сетки: " + ", ".join(
-                    "%d: %.0f%%" % (k + 1, v * 100)
-                    for k, v in sorted(state.items())))
-            return studies.grid_study(prm, progress=prog, cancel=cancel)
-
-        def done(res):
-            self.app.gridstudy = res
-            self.last = "study"
-            self.refresh()
-
-        self.app.run_task(job, done, "Сеточное исследование")
-
-    def _rewrap(self, e):
-        w = max(300, e.width - 20)
-        if self._wrap is None or abs(w - self._wrap) > 20:
-            self._wrap = w
-            self.verdict.configure(wraplength=w)
-
-    @staticmethod
-    def _grid_name(p):
-        return "%d×%d" % (p.IN, p.JN)
-
-    def refresh_study(self):
-        st = self.app.gridstudy
-        m = st.metric
-        names = ["%d×%d" % (q.IN, q.JN) for q in st.params]
-        self.table.set_columns(["Сетка", m, "Tвых, K", "N", "Состояние",
-                                "GCI по трём, %", "Вывод"])
-        kinds = {"monotone": "сходится", "oscillating": "колеблется",
-                 "diverging": "разности не убывают",
-                 "converged": "не зависит от сетки",
-                 "noise": "разности < 1 % (шум)"}
-        rows, bad = [], []
-        for k, (nm, res) in enumerate(zip(names, st.results)):
-            v = res.variants[0]
-            g = st.gcis[k - 2] if k >= 2 else None
-            rows.append([nm, "%.4f" % st.value(v),
-                         "%.0f" % analysis.exit_summary(v)["T"], str(v.NITER),
-                         "расходится" if v.diverged else
-                         ("не уст." if v.settled is False else "установился"),
-                         "—" if g is None else "%.2f" % g["gci"],
-                         "—" if g is None else kinds[g["kind"]]])
-            bad.append(v.diverged or v.settled is False)
-        self.table.set_rows(rows, bad)
-        txt = "Сеточное исследование: %s. " % " → ".join(names)
-        if st.gcis:
-            g = st.gcis[-1]
-            txt += "Последние три сетки: GCI(%s) = %.2f %% (%s)" % (
-                m, g["gci"], kinds[g["kind"]])
-            if g["ext"] == g["ext"] and g["kind"] == "monotone":
-                txt += ", %s на бесконечно мелкой сетке ≈ %.4f" % (m, g["ext"])
-            txt += ". "
-            txt += ("Сетки %s достаточно: сгущать дальше нет смысла."
-                    % names[-2] if st.done else
-                    "GCI ≥ 2 % и на сетке 400×176 - результат ещё зависит от "
-                    "сетки.")
-        if any(bad):
-            txt += " Красные строки - решение не установилось или разошлось."
-        self.verdict.configure(text=txt)
-        f = self.plot.fig
-        f.clear()
-        ax = f.add_subplot(121)
-        n_cells = [q.IN * q.JN for q in st.params]
-        vals = [st.value(r.variants[0]) for r in st.results]
-        ax.plot(n_cells, vals, "o-", color=plotting.THEMES[self.app.mode]
-                ["series"][0], lw=1.8)
-        if st.gcis and st.gcis[-1]["ext"] == st.gcis[-1]["ext"] and \
-                st.gcis[-1]["kind"] == "monotone":
-            ax.axhline(st.gcis[-1]["ext"], ls="--", lw=1, color="0.5",
-                       label="предел h → 0")
-            ax.legend(fontsize=8)
-        ax.set_xscale("log")
-        ax.set_xlabel("число узлов Nx·Nr")
-        ax.set_ylabel(m)
-        ax.grid(True, alpha=0.25)
-        ax.set_title("%s в зависимости от сетки" % m, fontsize=11)
-        ax2 = f.add_subplot(122)
-        cols = plotting.THEMES[self.app.mode]["series"]
-        for k, (res, nm) in enumerate(zip(st.results, names)):
-            v = res.variants[0]
-            r, T = analysis.radial_profile(v, NT, v.grid["IN"])
-            ax2.plot(r * 1000, T, color=cols[k % len(cols)], lw=1.5, label=nm)
-        ax2.set_xlabel("r, мм")
-        ax2.set_ylabel("T на выходе, K")
-        ax2.grid(True, alpha=0.25)
-        ax2.legend(fontsize=8)
-        ax2.set_title("Профиль T на выходе", fontsize=11)
-        self.plot.show()
-
-    def refresh(self):
-        if self.last == "study" and getattr(self.app, "gridstudy", None):
-            return self.refresh_study()
-        g = self.app.gridcheck
-        if g is None:
-            self.plot.message("Нажмите «Проверить»")
-            return
-        ps = [g.base_params, g.fine_params] + \
-            ([g.finer_params] if g.finer is not None else [])
-        names = [self._grid_name(p) for p in ps]
-        txt = "Сетки: %s. " % " → ".join(names)
-        rows_g = g.gci()
-        if rows_g:
-            self.table.set_columns(["α", "Величина"] + names +
-                                   ["Порядок p", "Предел (h→0)", "GCI, %",
-                                    "Вывод"])
-            kinds = {"monotone": "сходится", "oscillating": "колеблется",
-                     "diverging": "сетки грубые", "converged": "не зависит"}
-            rows, bad = [], []
-            for r in rows_g:
-                fmt = "%.5f" if r["name"] == "φк" else "%.1f"
-                rows.append(["%.2f" % r["alpha"], r["name"], fmt % r["f3"],
-                             fmt % r["f2"], fmt % r["f1"],
-                             "—" if r["p"] != r["p"] else "%.2f" % r["p"],
-                             "—" if r["ext"] != r["ext"] else fmt % r["ext"],
-                             "%.2f" % r["gci"], kinds[r["kind"]]])
-                bad.append(r["bad"])
-            self.table.set_rows(rows, bad)
-            fk = [r for r in rows_g if r["name"] == "φк"]
-            worst = max(fk, key=lambda r: r["gci"])
-            if any(r["kind"] == "diverging" for r in fk):
-                txt += ("Разности φк между сетками не убывают (%.4f → %.4f): "
-                        "эти сетки ещё слишком грубые, результат заметно "
-                        "зависит от сетки. Сгущать имеет смысл - повторите "
-                        "проверку, начав с более подробной сетки."
-                        % (abs(worst["f2"] - worst["f3"]),
-                           abs(worst["f1"] - worst["f2"])))
-            elif worst["gci"] < self.GOOD_GCI:
-                txt += ("GCI для φк = %.2f %% < %g %%: сгущать дальше нет "
-                        "смысла, результат на мелкой сетке отличается от "
-                        "предела не больше чем на %.2f %%."
-                        % (worst["gci"], self.GOOD_GCI, worst["gci"]))
-            else:
-                txt += ("GCI для φк = %.2f %%: при дальнейшем сгущении φк может "
-                        "измениться примерно на столько. Сгущать имеет смысл; "
-                        "оценка на бесконечно мелкой сетке φк ≈ %s."
-                        % (worst["gci"], "—" if worst["ext"] != worst["ext"]
-                           else "%.4f" % worst["ext"]))
-        else:
-            rows = g.table()
-            self.table.set_columns(["α", "Величина"] + names + ["Отличие, %"])
-            self.table.set_rows(
-                [("%.2f" % a, n, "%.5g" % x, "%.5g" % y,
-                  ("—" if rel != rel else "%+.2f" % rel) + (" расх." if b else ""))
-                 for a, n, x, y, rel, b in rows], bad=[r[5] for r in rows])
-            fk = [abs(r[4]) for r in rows if r[1] == "φк" and r[4] == r[4]
-                  and not r[5]]
-            if fk:
-                txt += "Наибольшее отличие φк: %.2f %%. " % max(fk)
-                txt += ("Результат практически не зависит от сетки."
-                        if max(fk) < 1 else
-                        "Отличие заметное - результат зависит от сетки; для "
-                        "оценки, нужно ли сгущать, выберите 3 сетки (GCI).")
-        res_all = [g.base, g.fine] + ([g.finer] if g.finer is not None else [])
-        unsettled = sum(v.settled is False or v.diverged
-                        for r in res_all for v in r.variants)
-        if unsettled:
-            txt += (" Внимание: на %d сетке(ах) решение не установилось или "
-                    "разошлось - такие строки красные." % unsettled)
-        self.verdict.configure(text=txt)
-        f = self.plot.fig
-        f.clear()
-        ax = f.add_subplot(111)
-        cols = plotting.THEMES[self.app.mode]["series"]
-        styles = ("-", "--", ":")
-        for k, (res, nm) in enumerate(zip(res_all, names)):
-            for n, v in enumerate(res.variants):
-                r, T = analysis.radial_profile(v, NT, v.grid["IN"])
-                ax.plot(r * 1000, T, styles[k], color=cols[n % len(cols)],
-                        lw=1.6, label="α=%.2f, %s" % (v.values["ALFA"], nm))
-        ax.set_xlabel("r, мм")
-        ax.set_ylabel("T на выходе, K")
-        ax.grid(True, alpha=0.25)
-        ax.legend(fontsize=8, ncol=2)
-        ax.set_title("Профиль температуры на выходе на разных сетках",
-                     fontsize=11)
-        self.plot.show()
 
 
 # ======================================================================

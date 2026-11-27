@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import kernels as K
-from . import refined
 from .fortran_format import fmt_e, fmt_f, fmt_i
 from .kernels import (NW, NF, NMFU1, NMOX1, NMPR1, NMPR2, NMDF, NMOX2,
                       NMFU2, NMU1, NRO3, NT, NV1, NMU2, N3)
@@ -114,7 +113,6 @@ class Solver:
         self.keep_partial = keep_partial
         self.resume = resume
         self._stopped = False
-        self._ref = None
         self._resume_ok = False
         self.F = np.float32 if self.p.precision == "float32" else np.float64
 
@@ -411,25 +409,14 @@ class Solver:
                 A[I, J, NF] = A[IC2, J, NF]
 
     # ------------------------------------------------------------------
-    _TC0 = np.zeros((1, 1))
-    _AO0 = np.zeros((1, 1, 1))
-
-    def _sweep(self, tmode, react, w_relax, ref, trans=0, TC=None, AO=None,
-               rlw=0.1, rld=0.1):
-        """Одна итерация: VISCOS, VELDIS, CONVEC, EQN (+ уточнённые модели).
-        trans = 1 - нестационарный шаг (TC = ρ/Δt, AO - поля на прошлом шаге
-        по времени); rlw, rld - нижняя релаксация вихря и плотности (0.1 -
-        как в оригинале)."""
+    def _sweep(self, tmode):
+        """Одна стационарная итерация."""
         p = self.p
-        if TC is None:
-            TC, AO = self._TC0, self._AO0
         K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
                  self.IN, self.JN, self.JA, self.JZ, self.JZ1, self.JA1,
                  self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
                  self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
-                 tmode, float(p.TSMOOTH), *self._ttab, rld)
-        if ref is not None:
-            ref.after_viscos()
+                 tmode, float(p.TSMOOTH), *self._ttab)
         self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
                               self.IMAX, self.VS, self.FKS, self.UKS,
                               self.INM, self.JNM, self.JA3, self.JC,
@@ -439,8 +426,6 @@ class Solver:
                  self.AE, self.AW, self.AN, self.AS,
                  self.AE1, self.AW1, self.AN1, self.AS1,
                  self.JNM, self.JA3, self.JC, self.IC, self.IC2)
-        if ref is not None:
-            ref.after_convec()
         K.eqn(self.A, self.X1, self.X2, self.R, self.IMIN, self.IMAX,
               self.BE, self.BW, self.BN, self.BS,
               self.AE, self.AW, self.AN, self.AS,
@@ -450,154 +435,9 @@ class Solver:
               self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
               self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
               self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-              self.IC2 + 1, float(p.OMEGA), react, w_relax,
-              trans, TC, AO, rlw)
-        if ref is not None:
-            ref.after_eqn()
+              self.IC2 + 1, float(p.OMEGA))
 
     def _iterate(self):
-        if int(getattr(self.p, "UNSTEADY", 0)):
-            return self._iterate_unsteady()
-        return self._iterate_steady()
-
-    # нижняя релаксация вихря и плотности на шаге по времени: с членом
-    # ρ/Δt уравнения устойчивы и без сильной релаксации (в стационарном
-    # расчёте - 0.1, как в оригинале)
-    UNSTEADY_RLW = 0.5
-    UNSTEADY_RLD = 0.5
-
-    def _fk_now(self):
-        ALFA, AMG, AMO2, BETA = self._fkargs
-        if self.p.model == "original":
-            return float(self._coefs_original(ALFA, AMG, AMO2, BETA)[0])
-        return float(self._coefs_corrected(ALFA, AMG, AMO2, BETA)[0])
-
-    def _residence_time(self, INT):
-        """Время пребывания газа в камере τпр = масса газа / расход."""
-        n1, n2 = self.IN + 1, self.JN + 1
-        x = np.asarray(self.X1[1:n1], float)
-        r = np.asarray(self.X2[1:n2], float)
-        dx = np.gradient(x)
-        dr = np.gradient(r)
-        rho = self.A[1:n1, 1:n2, NRO3]
-        vol = dx[:, None] * dr[None, :]
-        if int(self.NCORD) == 2:
-            vol = vol * 2 * np.pi * np.abs(r)[None, :]
-        m = INT[1:n1, 1:n2]
-        mass = float((rho * vol)[m].sum())
-        return mass / max(self._ms, 1e-12)
-
-    def _iterate_unsteady(self):
-        """Нестационарный расчёт (URANS): установление стационарным
-        расчётом (EDM, алгебраическая вязкость), затем шаги по времени Δt =
-        τпр/DT_STEPS с моделями k-ε + EDM; на каждом шаге - итерации до
-        сходимости (не больше INNER); разгон T_SPIN·τпр, затем осреднение
-        полей и φк по времени за T_AVG·τпр."""
-        import dataclasses
-        pu = self.p
-        self.p = dataclasses.replace(pu, UNSTEADY=0, COMB=1)
-        try:
-            self._iterate_steady()
-        finally:
-            self.p = pu
-        p = pu
-        if self._stopped or self.NITER > self._limit:
-            return
-        pre = self.NITER
-        A = self.A
-        tmode = refined.temperature_mode(p)
-        ref = refined.Refined(self, unsteady=True)
-        ref.init_from_mu()
-        self._ref = ref
-        tau = self._residence_time(ref.INT)
-        dt = tau / p.DT_STEPS
-        n_spin = int(round(p.T_SPIN * p.DT_STEPS))
-        n_avg = max(2, int(round(p.T_AVG * p.DT_STEPS)))
-        nsteps = n_spin + n_avg
-        AO = A.copy(order="F")
-        TC = np.zeros(A.shape[:2])
-        ref.TC = TC
-        ref.KO = ref.K.copy()
-        ref.EO = ref.E.copy()
-        avg = np.zeros_like(A)
-        navg = 0
-        fk_t, t_t = [], []
-        kk = np.array((NF, NT), dtype=np.int64)
-        out = np.zeros((2, 2))
-        inner_prev = A[:, :, (NF, NT)].copy(order="F")
-        prev = A[:, :, (NW, NF, NT, NMFU1)].copy(order="F") \
-            if self.track_history else None
-        self._snaps = []
-        snap_every = max(1, nsteps // 100) if self.snapshot_every else 0
-        self._limit = pre + nsteps * p.INNER
-        diverged = False
-        last_cb = 0.0
-        step = -1
-        for step in range(nsteps):
-            AO[...] = A
-            ref.KO[...] = ref.K
-            ref.EO[...] = ref.E
-            np.divide(A[:, :, NRO3], dt, out=TC)
-            K.field_change(A, inner_prev, kk, out)
-            for it in range(p.INNER):
-                n0 = self.NITER + 1
-                self.NITER = n0
-                self._sweep(tmode, 0, 1.0, ref, 1, TC, AO,
-                            self.UNSTEADY_RLW, self.UNSTEADY_RLD)
-                if self.NITER != n0:            # скорость > 27 000 м/с
-                    diverged = True
-                    break
-                if prev is not None:
-                    self._record(prev)
-                K.field_change(A, inner_prev, kk, out)
-                if not np.all(np.isfinite(out)):
-                    diverged = True
-                    break
-                worst = max(out[n, 1] / out[n, 0] if out[n, 0] > 0 else 0.
-                            for n in (0, 1))
-                if it >= 1 and worst < p.INNER_TOL:
-                    break
-            if diverged:
-                break
-            fk_t.append(self._fk_now())
-            t_t.append((step + 1) * dt)
-            if step >= n_spin:
-                avg += A
-                navg += 1
-            if snap_every and step % snap_every == 0:
-                self._snaps.append((self.NITER, A.astype(np.float32)))
-            if self.cancel is not None and self.cancel():
-                if self.keep_partial:
-                    self._stopped = True
-                    break
-                raise Cancelled()
-            if self.progress is not None:
-                now = time.monotonic()
-                if now - last_cb > 0.05 or step == nsteps - 1:
-                    last_cb = now
-                    self.progress(self.NVAR, p.NVARM, step + 1, nsteps)
-        if diverged:
-            self.NITER = self._limit + 1000
-            return
-        if navg:
-            A[...] = avg / navg
-        fa = np.array(fk_t[n_spin:]) if navg else np.array(fk_t)
-        half = len(fa) // 2
-        settled = None
-        if half >= 2:
-            m1, m2 = fa[:half].mean(), fa[half:].mean()
-            settled = bool(abs(m1 - m2) < 0.005 * max(abs(fa.mean()), 1e-9))
-        self._settled = settled if not self._stopped else False
-        self._limit = max(self._limit, self.NITER)
-        self._unsteady_info = dict(
-            dt=dt, tau=tau, steps=step + 1, n_spin=n_spin, n_avg=n_avg,
-            averaged_steps=navg, pre_iters=pre,
-            inner_mean=(self.NITER - pre) / max(step + 1, 1),
-            fk_t=np.array(fk_t), t=np.array(t_t),
-            fk_mean=float(fa.mean()) if len(fa) else float("nan"),
-            fk_std=float(fa.std()) if len(fa) else float("nan"))
-
-    def _iterate_steady(self):
         """Итерационный цикл варианта (метка 1 в RK2.FOR)."""
         p = self.p
         self.NITER = 0
@@ -616,19 +456,7 @@ class Solver:
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
         self._ttab = self._temperature_table()
-        tmode = refined.temperature_mode(p)
-        react, w_relax = 1, 1.0
-        self._ref = None
-        if refined.active(p):
-            # уточнённые модели горения и турбулентности (metan/refined)
-            self._ref = refined.Refined(self)
-            if self._resume_ok:
-                self._ref.restore(getattr(self.resume, "refined_state", None))
-            if self._ref.comb != 0:
-                react = 0
-            if self._ref.turb == 1:
-                w_relax = refined.RELAX_W
-        ref = self._ref
+        tmode = p.TMODEL
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -639,7 +467,7 @@ class Solver:
             calm = 0
         while True:
             self.NITER += 1
-            self._sweep(tmode, react, w_relax, ref)
+            self._sweep(tmode)
             if self.track_history:
                 self._record(prev)
             if (snap_step and self.NITER <= p.NMAX
@@ -684,7 +512,7 @@ class Solver:
         """Таблица равновесной температуры T(f) для TMODEL = 2 (по давлению в
         камере и энтальпии горючего; строится один раз, ~1 с)."""
         p = self.p
-        if refined.temperature_mode(p) not in (2, 3):
+        if p.TMODEL != 2:
             z = np.zeros(2)
             return (z, z + 1., z)
         from . import thermo as _th
@@ -927,25 +755,13 @@ class Solver:
                 line += " " + name + "=" + fmt_e(val, 11, 4)
         out.append(line)
 
-        self._fkargs = (ALFA, AMG, AMO2, BETA)
-        self._ms = float(AMS)
-        self._unsteady_info = None
         self._iterate()
-        if self._ref is not None:
-            self._ref.end()
         out.append(" " * 25 + "NITER=" + fmt_i(self.NITER, 4))
 
         if self.p.model == "original":
-            fk, kind, FICM, extra = self._coefs_original(ALFA, AMG, AMO2, BETA)
+            fk, kind, extra = self._coefs_original(ALFA, AMG, AMO2)
         else:
-            fk, kind, FICM, extra = self._coefs_corrected(ALFA, AMG, AMO2, BETA)
-        ui = self._unsteady_info
-        if ui is not None:
-            # нестационарный расчёт: φк - среднее по времени (по полю,
-            # осреднённому по времени, - в extra["fk_field"])
-            extra["fk_field"] = float(fk)
-            fk = ui["fk_mean"]
-            extra["unsteady"] = ui
+            fk, kind, extra = self._coefs_corrected(AMG, AMO2)
         if kind == "GOR":
             out.append(" ************* KOEF Fkomp (GOR) =" + fmt_f(fk, 8, 5)
                        + " **********")
@@ -961,7 +777,7 @@ class Solver:
         FIOP = FIOP * 3.1416 * 2.
         FIOS = FIOS * 3.1416 * 2.
         DOP = FIOS / FIOP
-        extra.update(FIbeta=float(FICM), FIOP=float(FIOP), FIOS=float(FIOS),
+        extra.update(FIOP=float(FIOP), FIOS=float(FIOS),
                      DOP=float(DOP))
 
         values = dict(P=float(P), ALFA=float(ALFA), KM=float(AKM),
@@ -982,31 +798,11 @@ class Solver:
             stopped=self._stopped,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
-        if self._ref is not None:
-            v = res.variants[-1]
-            v.extra["averaged"] = self._ref.averaged
-            v.extra["model"] = refined.describe(self.p)
-            v.refined_state = self._ref.state()
 
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _beta(a, c=2154.733):
-        """Расходный комплекс BETA(ALFA), аппроксимация из RK2.FOR."""
-        b = 0.
-        if a <= 1.:
-            b = 1794. + 491.252 * a - 475.9317 * a ** 2
-        if a > 1.:
-            b = c - 402.252 * a + 54.1698 * a ** 2
-        if a < 0.6:
-            b = 1917. - 2500. * (0.6 - a)
-        if b < 600.:
-            b = 600.
-        return b
-
-    def _coefs_original(self, ALFA, AMG, AMO2, BETA):
-        """Fkomp и FIbeta точно как в RK2.FOR (метки 1000 и 29)."""
+    def _coefs_original(self, ALFA, AMG, AMO2):
+        """Fkomp точно как в RK2.FOR (метка 1000)."""
         F = self.F
-        A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
+        A, IN, JC = self.A, self.IN, self.JC
         JZ, JZ1, JA = self.JZ, self.JZ1, self.JA
         # 1000: коэффициент полноты сгорания
         JC17 = JC - 1
@@ -1040,46 +836,16 @@ class Solver:
             fk = (1. - abs(ZGCP)) ** 0.5
             kind = "OK"
 
-        # 29: FIbeta - расчётный комплекс по выходному сечению
-        Z = F(0.)
-        BETAJ = F(0.)
-        for J in range(2, JC + 1):
-            IL = INM
-            ZO = (A[IL, J - 1, NMOX1] + 4.27 * A[IL, J - 1, NMPR1]
-                  + 3.35 * A[IL, J - 1, NMOX2] + 376. * A[IL, J - 1, NMDF]
-                  + 2.785 * A[IL, J - 1, NMPR2] + 2.765 * A[IL, J - 1, NMFU2])
-            ZG = (A[IL, J - 1, NMFU1] + 1.09 * A[IL, J - 1, NMPR1]
-                  + 0.857 * A[IL, J - 1, NMOX2] + 96. * A[IL, J - 1, NMDF]
-                  + 0.711 * A[IL, J - 1, NMPR2] + 0.706 * A[IL, J - 1, NMFU2])
-            ALFAJ = ZO / ZG / 3.9166
-            if ALFAJ <= 1.:
-                BETAJ = 1794. + 491.252 * ALFAJ - 475.9317 * ALFAJ ** 2
-            if ALFAJ > 1.:
-                BETAJ = 2154. - 402.252 * ALFAJ + 54.1698 * ALFAJ ** 2
-            if ALFAJ < 0.6:
-                BETAJ = 1917. - 2500. * (0.6 - ALFAJ)
-            if BETAJ < 600.:
-                BETAJ = F(600.)
-            ZF = (A[IL, J, NF] - A[IL, J - 1, NF]) / (A[IL, JC, NF] - A[IL, 1, NF])
-            Z = Z + BETAJ * ZF
-        FICM = Z / BETA
-        return fk, kind, FICM, extra
+        return fk, kind, extra
 
-    def _coefs_corrected(self, ALFA, AMG, AMO2, BETA):
-        """Fkomp и FIbeta, правильные при любом ALFA.
+    def _coefs_corrected(self, AMG, AMO2):
+        """Fkomp при любом ALFA.
 
         Fkomp = sqrt(eta), eta = (CH4 на входе - CH4 на выходе) / CH4, которое
         может сгореть. Глобальная реакция модели (24 CH4 + 47 O2) расходует
         3.9166 кг O2 на 1 кг CH4, поэтому сгореть может min(Mgor, Mok/3.9166).
         В оригинале при ALFA <= 1 избыток горючего считался по K0 = 4, а при
         ALFA > 1 - по расходу через функцию тока с поправкой 0.013833.
-
-        FIbeta = (среднерасходное BETA(alfa_j)) / BETA(ALFA). Местный alfa_j
-        по элементному составу: продукты делятся на окислитель/горючее как
-        0.7966/0.2034 (как в VISCOS); K0 = 4, как в KM = 4*ALFA. В оригинале
-        каждый из пяти продуктов пересчитывался как вся смесь продуктов, т.е.
-        продукты учитывались впятеро, и местный alfa_j тянулся к 1 - отсюда
-        FIbeta > 1 при ALFA > 1.
         """
         A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
         extra = {}
@@ -1097,26 +863,20 @@ class Solver:
         kind = "GOR" if burnable >= gin else "OK"
         extra["eta"] = float(eta)
         extra["Gout"] = float(G)
-        # FIbeta
+        # Средневзвешенный по расходу α на выходе
         IL = INM
         prod = (A[IL, 1:JC + 1, NMPR1] + A[IL, 1:JC + 1, NMOX2]
                 + A[IL, 1:JC + 1, NMDF] + A[IL, 1:JC + 1, NMPR2]
                 + A[IL, 1:JC + 1, NMFU2])
         zo = A[IL, 1:JC + 1, NMOX1] + 0.7966 * prod
         zg = np.maximum(A[IL, 1:JC + 1, NMFU1] + 0.2034 * prod, 1e-12)
-        aj = zo / zg / 4.
-        bj = np.array([self._beta(float(x)) for x in aj])
         fj = zg / (zo + zg)                 # доля "горючих" элементов
         dpsi = np.diff(A[IL, 1:JC + 1, NF])
         tot = dpsi.sum()
-        if tot == 0:
-            return fk, kind, 0., extra
-        bmean = float(((bj[1:] + bj[:-1]) / 2. * dpsi).sum() / tot)
-        fmean = float(((fj[1:] + fj[:-1]) / 2. * dpsi).sum() / tot)
-        a_exit = (1. - fmean) / fmean / 4.
-        extra["ALFAexit"] = float(a_exit)
-        FICM = bmean / BETA
-        return fk, kind, FICM, extra
+        if tot != 0:
+            fmean = float(((fj[1:] + fj[:-1]) / 2. * dpsi).sum() / tot)
+            extra["ALFAexit"] = (1. - fmean) / fmean / 4.
+        return fk, kind, extra
 
     def _print1(self, out):
         """SUBROUTINE PRINT1 (RK7.FOR): поля K=1..4 и координаты в shi20.dat."""

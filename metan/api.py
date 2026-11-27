@@ -35,7 +35,6 @@ def run(params=None, progress=None, cancel=None):
     результаты по вариантам α."""
     from .analysis import exit_summary
     from .params import Params
-    from .refined import describe
     from .solver import Solver
     if params is None:
         p = Params()
@@ -47,7 +46,8 @@ def run(params=None, progress=None, cancel=None):
         p = Params.from_dict(d)
     res = Solver(p, progress=progress, cancel=cancel,
                  track_history=False).run()
-    out = dict(program="Metan", version=__version__, model=describe(p),
+    out = dict(program="Metan", version=__version__,
+               model="стационарный; горение - мгновенная, турбулентность - алгебраическая",
                params=p.to_dict(), elapsed_s=_num(res.elapsed),
                variants=[])
     for v in res.variants:
@@ -56,19 +56,12 @@ def run(params=None, progress=None, cancel=None):
         row = dict(
             alpha=_num(val["ALFA"]), Km=_num(val["KM"]),
             beta=_num(val["BETA"]), mass_flow=_num(val["Ms"]),
-            phi_k=_num(v.fkomp), phi_beta=_num(v.extra.get("FIbeta", "nan")),
+            phi_k=_num(v.fkomp),
             T_exit=_num(ex["T"]),
             exit_mass_fractions={k: _num(x) for k, x in ex.items()
                                  if k != "T"},
             iterations=int(v.NITER), settled=v.settled,
             diverged=bool(v.diverged))
-        u = v.extra.get("unsteady")
-        if u is not None:
-            row["unsteady"] = dict(
-                residence_time_s=_num(u["tau"]), dt_s=_num(u["dt"]),
-                steps=int(u["steps"]), phi_k_std=_num(u["fk_std"]),
-                phi_k_t=[_num(x) for x in u["fk_t"]],
-                t_s=[_num(x) for x in u["t"]])
         out["variants"].append(row)
     return out
 

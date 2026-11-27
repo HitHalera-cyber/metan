@@ -19,10 +19,7 @@ from .widgets import Canvas, button, check, font, label, option, _scaling
 
 # подписи вариантов в выпадающих списках
 CHOICES = {"NCORD": {"2": "осесимметричная", "1": "плоская"},
-           "TMODEL": {"0": "исходная", "2": "равновесная"},
-           "COMB": {"0": "мгновенная", "1": "EDM"},
-           "UNSTEADY": {"0": "стационарный", "1": "нестационарный"},
-           "TURB": {"0": "алгебраическая", "1": "k–ε"}}
+           "TMODEL": {"0": "исходная", "2": "равновесная"}}
 
 HELP_HINT = ("Щёлкните правой кнопкой мыши по параметру, чтобы увидеть, "
              "что он означает.")
@@ -82,15 +79,6 @@ class Sidebar(ctk.CTkFrame):
                     r = self._iters_block(body, r)
                     r = self._re_block(body, r)
             if key == "mode":
-                self.uns_lbl = label(
-                    body, "Нестационарный расчёт: турбулентность k–ε, "
-                    "горение EDM, температура равновесная. Сначала поля "
-                    "устанавливаются, затем 2 τпр - разгон и tос - "
-                    "осреднение по времени (раздел «Сетка и итерации»).",
-                    11, wraplength=280, justify="left", muted=True)
-                self.uns_lbl.grid(row=r, column=0, sticky="w", padx=6,
-                                  pady=(2, 0))
-                r += 1
                 self.alfa_lbl = label(body, "", 11, wraplength=280,
                                       justify="left")
                 self.alfa_lbl.configure(text_color=c("accent"))
@@ -106,11 +94,6 @@ class Sidebar(ctk.CTkFrame):
                     var=self.snap_var)
             self.sections[key] = (head, body)
         self._multi_toggle()
-        for name in ("TMODEL", "COMB", "UNSTEADY"):
-            if name in self.vars:
-                self.vars[name].trace_add("write",
-                                          lambda *a: self._tmodel_toggle())
-        self._tmodel_toggle()
         self.open_section("mode")
 
         # Справка по параметру (не прокручивается)
@@ -210,7 +193,7 @@ class Sidebar(ctk.CTkFrame):
         if kind:
             names = CHOICES.get(name, {})
             w = option(fr, [names.get(str(x), str(x)) for x in kind],
-                       variable=v, width=(130 if name in ("COMB", "TURB") else 150)
+                       variable=v, width=150
                        if names else 96)
             w.grid(row=0, column=1, sticky="e", pady=3)
         else:
@@ -384,13 +367,6 @@ class Sidebar(ctk.CTkFrame):
         re, exact = self._re
         st = convergence.stability(re)
         col = {"ok": "accent", "edge": "warn", "bad": "danger"}[st]
-        if self._unsteady():
-            self.re_val.configure(text="%.0f" % re, text_color=c("muted"))
-            self.re_note.configure(
-                text="Нестационарный расчёт: колебания течения допустимы - "
-                     "это физика, результат осредняется по времени; Reт "
-                     "расчёт не ограничивает.")
-            return
         self.re_val.configure(text="%.0f" % re, text_color=c(col))
         verdict = {"ok": "течение устойчиво",
                    "edge": "на границе - решение может не установиться",
@@ -398,21 +374,6 @@ class Sidebar(ctk.CTkFrame):
         self.re_note.configure(text="%s: запас до предела 130 - %.1f раза; %s."
                                % ("По расчёту" if exact else "Оценка до расчёта",
                                   convergence.RE_UNSTABLE / re, verdict))
-
-    def _unsteady(self):
-        return "UNSTEADY" in self.vars and \
-            self.vars["UNSTEADY"].get() == CHOICES["UNSTEADY"]["1"]
-
-    def _unsteady_iters(self):
-        """Итераций нестационарного расчёта сверх установления: шагов по
-        времени × ≈ 30 итераций на шаге."""
-        try:
-            tav = float(self.vars["T_AVG"].get().replace(",", "."))
-        except (ValueError, KeyError):
-            tav = 5.0
-        d = Params()
-        steps = (d.T_SPIN + tav) * d.DT_STEPS
-        return steps, steps * 30
 
     def show_iters(self, est=None):
         """Nуст и запас K = Nит/Nуст (est - из convergence.estimate)."""
@@ -434,13 +395,6 @@ class Sidebar(ctk.CTkFrame):
         verdict = ("успеет установиться" if k >= 1 else
                    "может не успеть" if k >= 0.5 else "не успеет")
         txt = "Предел Nит = %d → запас K = %.2f: %s." % (nmax, k, verdict)
-        extra_it = 0
-        if self._unsteady():
-            steps, extra_it = self._unsteady_iters()
-            txt = ("Нестационарный: подготовка - стационарный расчёт (до "
-                   "Nит = %d итераций; установиться ему не обязательно), "
-                   "затем %d шагов по времени × ≈ 30 итераций." % (nmax, steps))
-            self.it_val.configure(text_color=c("accent"))
         try:
             nx = int(float(self.vars["IN"].get()))
             nr = int(float(self.vars["JN"].get()))
@@ -455,7 +409,7 @@ class Sidebar(ctk.CTkFrame):
             txt += " Память ≈ %.0f МБ." % (mem / 1e6)
             if self._node_cost:
                 from .main import _fmt_time
-                sec = (min(n, nmax) + extra_it) * nx * nr * nv * \
+                sec = min(n, nmax) * nx * nr * nv * \
                     self._node_cost
                 txt += " Время ≈ %s%s." % (_fmt_time(sec),
                                            " на %d вариантов" % nv
@@ -514,30 +468,6 @@ class Sidebar(ctk.CTkFrame):
         cb.grid(row=r, column=0, sticky="w", padx=6, pady=(2, 4))
         self._multi_rows_at = r + 1
         return r + 1
-
-    def _tmodel_toggle(self):
-        """Ширина сглаживания w - только у сглаженной модели температуры;
-        модель температуры - только при мгновенном горении (иначе её задаёт
-        модель горения); постоянная A - только у EDM."""
-        def show(name, on):
-            if name in self.rows:
-                (self.rows[name].grid if on else self.rows[name].grid_remove)()
-        uns = "UNSTEADY" in self.vars and \
-            self.vars["UNSTEADY"].get() == CHOICES["UNSTEADY"]["1"]
-        comb = self.vars["COMB"].get() if "COMB" in self.vars else \
-            CHOICES["COMB"]["0"]
-        instant = comb == CHOICES["COMB"]["0"]
-        # нестационарный расчёт - одна модель (k-ε + EDM + равновесная T)
-        show("COMB", not uns)
-        show("TMODEL", instant and not uns)
-        show("EDM_A", uns or comb == CHOICES["COMB"]["1"])
-        show("T_AVG", uns)
-        if hasattr(self, "uns_lbl"):
-            (self.uns_lbl.grid if uns else self.uns_lbl.grid_remove)()
-        if getattr(self, "_est", None):
-            self.show_iters()
-        if getattr(self, "_re", None):
-            self.show_reynolds()
 
     def _multi_toggle(self):
         on = self.multi_var.get()

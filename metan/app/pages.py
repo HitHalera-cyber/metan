@@ -16,6 +16,7 @@ from .widgets import Flow, Plot, Table, button, check, label, option, segmented
 
 FIELD_ORDER = [13, 2, 1, 3, 4, 5, 6, 7, 8, 9, 12, 14, 15, 16, 11, 10]
 FIELD_NAMES = [VAR_NAMES[k] for k in FIELD_ORDER]
+FIELD_STYLES = {"Заливка": "fill", "Изолинии": "lines", "Оба": "both"}
 PARAM_META = {n: m for n, _, m in Params.field_info()}
 
 
@@ -51,6 +52,15 @@ class Page(ctk.CTkFrame):
     def colors(self):
         return pal(self.app.mode)
 
+    def field_style_control(self, parent):
+        self.style_var = tk.StringVar(value="Заливка")
+        segmented(parent, list(FIELD_STYLES), lambda _v: self.refresh(),
+                  self.style_var).pack(side="left", padx=8)
+
+    @property
+    def field_style(self):
+        return FIELD_STYLES[self.style_var.get()]
+
 
 # ======================================================================
 class FieldsPage(Page):
@@ -62,9 +72,7 @@ class FieldsPage(Page):
         self.qty = tk.StringVar(value=FIELD_NAMES[0])
         option(tb, FIELD_NAMES, lambda _v: self.refresh(), self.qty,
                width=230).pack(side="left")
-        self.style_var = tk.StringVar(value="Заливка")
-        segmented(tb, ["Заливка", "Изолинии", "Оба"], lambda _v: self.refresh(),
-                  self.style_var).pack(side="left", padx=8)
+        self.field_style_control(tb)
         self.mirror = tk.BooleanVar(value=True)
         self.stream = tk.BooleanVar(value=True)
         self.labels = tk.BooleanVar(value=False)
@@ -86,14 +94,12 @@ class FieldsPage(Page):
             self.plot.message("Нажмите «Рассчитать»")
             return
         k = FIELD_ORDER[FIELD_NAMES.index(self.qty.get())]
-        st = {"Заливка": "fill", "Изолинии": "lines", "Оба": "both"}[
-            self.style_var.get()]
         p = self.colors()
         f = self.plot.fig
         f.clear()
         ax = f.add_subplot(111)
         try:
-            plotting.draw(ax, v, k, style=st, mirror=self.mirror.get(),
+            plotting.draw(ax, v, k, style=self.field_style, mirror=self.mirror.get(),
                           stream=self.stream.get(), labels=self.labels.get(),
                           units="m" if self.meters.get() else "mm",
                           fg=p["fg"], wall_color=p["muted"], label=VAR_NAMES[k],
@@ -275,44 +281,8 @@ class ConvergencePage(Page):
         self.plot.grid(row=2, column=0, sticky="nsew")
         self.grid_rowconfigure(2, weight=1)
 
-    def refresh_unsteady(self, v):
-        """Нестационарный расчёт: φк(t) и осреднение по времени."""
-        u = v.extra["unsteady"]
-        f = self.plot.fig
-        f.clear()
-        ax = f.add_subplot(111)
-        col = plotting.THEMES[self.app.mode]["series"]
-        t = np.asarray(u["t"]) * 1e3
-        fk = np.asarray(u["fk_t"])
-        ax.plot(t, fk, color=col[0], lw=1.3, label="φк(t)")
-        if u["n_spin"] < len(t):
-            ax.axvspan(t[0], t[min(u["n_spin"], len(t) - 1)], color="0.5",
-                       alpha=0.12, label="разгон")
-        ax.axhline(u["fk_mean"], color=col[1], ls="--", lw=1.2,
-                   label="среднее %.4f" % u["fk_mean"])
-        ax.set_xlabel("время t, мс")
-        ax.set_ylabel("φк")
-        ax.grid(True, alpha=0.25)
-        ax.legend(fontsize=8)
-        ax.set_title("Нестационарный расчёт: полнота сгорания во времени",
-                     fontsize=11)
-        self.plot.show()
-        st = ("среднее установилось (первая и вторая половины осреднения "
-              "отличаются меньше чем на 0.5 %)" if v.settled else
-              "среднее ещё меняется - увеличьте время осреднения tос")
-        self.verdict.configure(text=(
-            "α=%.2f: τпр = %.3f мс, шаг Δt = %.2f мкс (%d шагов на τпр), "
-            "%d шагов, в среднем %.1f итераций на шаге; установление перед "
-            "этим - %d итераций.\nφк = %.4f ± %.4f (среднее и размах "
-            "колебаний за время осреднения) → %s."
-            % (v.values["ALFA"], u["tau"] * 1e3, u["dt"] * 1e6,
-               round(u["tau"] / u["dt"]), u["steps"], u["inner_mean"],
-               u["pre_iters"], u["fk_mean"], u["fk_std"], st)))
-
     def refresh(self):
         v = self.app.variant
-        if v is not None and v.extra.get("unsteady") is not None:
-            return self.refresh_unsteady(v)
         if v is None or not v.history:
             self.plot.message("Нет данных о сходимости")
             self.verdict.configure(text="")
@@ -354,140 +324,174 @@ class ConvergencePage(Page):
 class AnimationPage(Page):
     title = "Анимация"
 
-    def __init__(self, master, app):
+    def __init__(self, master, app, first_row=0):
         super().__init__(master, app)
-        tb = self.toolbar()
+        tb = self.toolbar(first_row)
         self.qty = tk.StringVar(value=VAR_NAMES[NT])
         option(tb, FIELD_NAMES, lambda _v: self._calc_range(), self.qty,
                width=230).pack(side="left")
+        self.field_style_control(tb)
         self.play_btn = button(tb, "▶  Пуск", self.toggle, width=100)
         self.play_btn.pack(side="left", padx=8)
         self.fps = tk.StringVar(value="8 кадр/с")
         option(tb, ["4 кадр/с", "8 кадр/с", "15 кадр/с"], None, self.fps,
                width=110).pack(side="left")
         button(tb, "Сохранить GIF", self.save_gif, width=130).pack(side="right")
-        tb2 = self.toolbar(1)
+        tb2 = self.toolbar(first_row + 1)
         self.slider = ctk.CTkSlider(tb2, from_=0, to=1, number_of_steps=1,
                                     command=lambda _v: self.refresh(),
                                     button_color=c("accent"),
                                     button_hover_color=c("accent_hover"),
                                     progress_color=c("accent"), fg_color=c("line"))
         self.slider.pack(side="left", fill="x", expand=True)
-        self.frame_lbl = label(tb2, "", 12, mono=True, width=180)
+        self.frame_lbl = label(tb2, "", 12, mono=True, width=250)
         self.frame_lbl.pack(side="right")
         self.plot = Plot(self, app, toolbar=False)
-        self.plot.grid(row=2, column=0, sticky="nsew")
-        self.grid_rowconfigure(2, weight=1)
+        self.plot.grid(row=first_row + 2, column=0, sticky="nsew")
+        self.grid_rowconfigure(first_row + 2, weight=1)
         self.playing = False
         self.vrange = None
-        self._last_v = None
+        self._last_source = None
+        self._timer = None
+
+    def frame_source(self):
+        return self.app.variant
+
+    def frame_count(self, source):
+        return len(source.snapshots) if source is not None else 0
+
+    def frame(self, source, index):
+        iteration, fields = source.snapshots[index]
+        label = "итерация %d / %d" % (iteration, source.NITER)
+        return source, fields, label, None
+
+    def empty_message(self):
+        return ("Нет кадров. Задайте «Кадр анимации каждые N итераций» "
+                "и пересчитайте.")
 
     def _calc_range(self):
-        v = self.app.variant
+        source = self.frame_source()
+        k = FIELD_ORDER[FIELD_NAMES.index(self.qty.get())]
+        vals = []
+        for i in range(self.frame_count(source)):
+            v, fields, _, _ = self.frame(source, i)
+            if v is not None:
+                Z = fields[1:v.grid["IN"] + 1, 1:v.grid["JN"] + 1, k].T
+                z = Z[~plotting.node_mask(v) & np.isfinite(Z)]
+                if z.size:
+                    vals.append(z)
         self.vrange = None
-        if v is not None and v.snapshots:
-            k = FIELD_ORDER[FIELD_NAMES.index(self.qty.get())]
-            mask = plotting.node_mask(v)
-            vals = []
-            for _, A in v.snapshots:
-                Z = np.asarray(A[1:v.grid["IN"] + 1, 1:v.grid["JN"] + 1, k],
-                               float).T[~mask]
-                vals.append(Z[np.isfinite(Z)])
-            allv = np.concatenate(vals) if vals else np.array([])
-            if allv.size:
-                lo, hi = np.percentile(allv, [0.5, 99.5])
-                self.vrange = (float(lo), float(hi)) if hi > lo else None
+        if vals:
+            lo, hi = np.percentile(np.concatenate(vals), [0.5, 99.5])
+            if hi <= lo:
+                lo = min(z.min() for z in vals)
+                hi = max(z.max() for z in vals)
+            if hi > lo:
+                self.vrange = (float(lo), float(hi))
         self.refresh()
 
+    def _draw_frame(self, fig, frame, k, style, mode, vrange):
+        v, fields, caption, error = frame
+        fig.clear()
+        ax = fig.add_subplot(111)
+        if v is None:
+            ax.set_axis_off()
+            ax.text(0.5, 0.5, error, ha="center", va="center", wrap=True,
+                    transform=ax.transAxes)
+            ax.set_title(caption)
+            return
+        p = pal(mode)
+        vv = dataclasses.replace(v, A=fields.astype(float, copy=False))
+        plotting.draw(ax, vv, k, style=style, fg=p["fg"], wall_color=p["muted"],
+                      vrange=vrange, label=VAR_NAMES[k], labels=style == "lines",
+                      colorbar_cb=lambda m, lab: fig.colorbar(
+                          m, ax=ax, label=lab, shrink=0.85))
+        ax.set_title("%s, α = %.2f — %s" %
+                     (VAR_NAMES[k], v.values["ALFA"], caption), fontsize=11)
+
     def refresh(self):
-        v = self.app.variant
-        if v is None or not v.snapshots:
-            self.plot.message("Нет кадров. Задайте «Кадр анимации каждые N "
-                              "итераций» (слева, раздел «Расчёт») и пересчитайте.")
+        source = self.frame_source()
+        count = self.frame_count(source)
+        if not count:
+            self._last_source = None
+            self.pause()
+            self.plot.message(self.empty_message())
             self.frame_lbl.configure(text="")
             return
-        if self._last_v is not v:
-            self._last_v = v
-            n = len(v.snapshots)
-            self.slider.configure(to=n - 1, number_of_steps=max(1, n - 1))
-            self.slider.set(n - 1)
+        if self._last_source is not source:
+            self.pause()
+            self._last_source = source
+            self.slider.configure(to=max(1, count - 1),
+                                  number_of_steps=max(1, count - 1))
+            self.slider.set(self.initial_frame(count))
             self._calc_range()
             return
-        n = int(round(self.slider.get()))
-        n = max(0, min(n, len(v.snapshots) - 1))
-        it, A = v.snapshots[n]
-        self.frame_lbl.configure(text="итерация %d / %d" % (it, v.NITER))
+        index = max(0, min(int(round(self.slider.get())), count - 1))
+        frame = self.frame(source, index)
+        self.frame_lbl.configure(text=frame[2])
         k = FIELD_ORDER[FIELD_NAMES.index(self.qty.get())]
-        vv = dataclasses.replace(v, A=A.astype(float))
-        p = self.colors()
-        f = self.plot.fig
-        f.clear()
-        ax = f.add_subplot(111)
-        plotting.draw(ax, vv, k, fg=p["fg"], wall_color=p["muted"],
-                      vrange=self.vrange, label=VAR_NAMES[k],
-                      colorbar_cb=lambda m, lab: f.colorbar(m, ax=ax, label=lab,
-                                                            shrink=0.85))
-        ax.set_title("%s, α = %.2f — итерация %d" % (VAR_NAMES[k],
-                                                     v.values["ALFA"], it),
-                     fontsize=11)
+        self._draw_frame(self.plot.fig, frame, k, self.field_style,
+                         self.app.mode, self.vrange)
         self.plot.show()
 
+    def initial_frame(self, count):
+        return count - 1
+
+    def pause(self):
+        if self._timer is not None:
+            self.after_cancel(self._timer)
+            self._timer = None
+        self.playing = False
+        self.play_btn.configure(text="▶  Пуск")
+
     def toggle(self):
-        self.playing = not self.playing
-        self.play_btn.configure(text="❚❚  Пауза" if self.playing else "▶  Пуск")
         if self.playing:
+            self.pause()
+        elif self.frame_count(self.frame_source()):
+            self.playing = True
+            self.play_btn.configure(text="❚❚  Пауза")
             self._tick()
 
     def _tick(self):
-        v = self.app.variant
-        if not self.playing or v is None or not v.snapshots:
-            self.playing = False
-            self.play_btn.configure(text="▶  Пуск")
+        self._timer = None
+        count = self.frame_count(self.frame_source())
+        if not count or not self.winfo_ismapped():
+            self.pause()
             return
-        n = int(round(self.slider.get())) + 1
-        if n >= len(v.snapshots):
-            n = 0
-        self.slider.set(n)
+        self.slider.set((int(round(self.slider.get())) + 1) % count)
         self.refresh()
-        fps = int(self.fps.get().split()[0])
-        self.after(int(1000 / fps), self._tick)
+        if self.playing:
+            fps = int(self.fps.get().split()[0])
+            self._timer = self.after(int(1000 / fps), self._tick)
 
     def save_gif(self):
-        v = self.app.variant
-        if v is None or not v.snapshots:
+        source = self.frame_source()
+        count = self.frame_count(source)
+        if not count:
             return
         path = filedialog.asksaveasfilename(defaultextension=".gif",
                                             filetypes=[("GIF", "*.gif")])
         if not path:
             return
         k = FIELD_ORDER[FIELD_NAMES.index(self.qty.get())]
-        vrange, mode = self.vrange, self.app.mode
+        vrange, mode, style = self.vrange, self.app.mode, self.field_style
         fps = int(self.fps.get().split()[0])
 
         def job(progress, cancel):
             from matplotlib.animation import PillowWriter
             from matplotlib.figure import Figure
             fig = Figure(figsize=(8, 4.2), dpi=100)
-            ax = fig.add_subplot(111)
-            p = pal(mode)
             writer = PillowWriter(fps=fps)
             with writer.saving(fig, path, dpi=100):
-                for n, (it, A) in enumerate(v.snapshots):
-                    if cancel():
-                        break
-                    fig.clear()
-                    ax = fig.add_subplot(111)
-                    plotting.draw(ax, dataclasses.replace(v, A=A.astype(float)),
-                                  k, fg=p["fg"], wall_color=p["muted"],
-                                  vrange=vrange, label=VAR_NAMES[k],
-                                  colorbar_cb=lambda m, lab: fig.colorbar(
-                                      m, ax=ax, label=lab, shrink=0.85))
-                    ax.set_title("%s — итерация %d" % (VAR_NAMES[k], it))
+                for n in range(count):
+                    self._draw_frame(fig, self.frame(source, n), k, style, mode,
+                                     vrange)
                     plotting.style(fig, mode)
                     fig.tight_layout()
                     writer.grab_frame()
-                    progress((n + 1) / len(v.snapshots),
-                             "GIF: кадр %d из %d" % (n + 1, len(v.snapshots)))
+                    progress((n + 1) / count, "GIF: кадр %d из %d" % (n + 1, count))
+                    if cancel():
+                        break
             return path
 
         self.app.run_task(job, lambda p: self.app.status("GIF сохранён: " + p),

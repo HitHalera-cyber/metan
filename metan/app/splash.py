@@ -511,12 +511,9 @@ def _warmup(status):
     from ..params import Params
     from ..solver import Solver
     Solver(Params(NVARM=1, NMAX=2, NPRINT=1), track_history=False).run()
-    # ядра уточнённых моделей (EDM, k-ε) и таблицы равновесия - тоже
+    # Таблица равновесной температуры - тоже
     # заранее, а не при первом выборе модели в фоновом потоке
-    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, COMB=1),
-           track_history=False).run()
-    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, UNSTEADY=1, T_AVG=0.5,
-                  T_SPIN=0.1, DT_STEPS=10, INNER=2),
+    Solver(Params(NVARM=1, NMAX=4, NPRINT=1, TMODEL=2),
            track_history=False).run()
     status("Запуск интерфейса…")
     for mod in ("customtkinter", "metan.app.main"):
