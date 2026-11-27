@@ -17,8 +17,8 @@ from ..params import Params
 from ..solver import Cancelled, Solver
 from .pages import (AnimationPage, ConvergencePage, FieldsPage, GeometryPage,
                     ProfilesPage)
-from .pages2 import (ComparePage, GridCheckPage, OptimizePage, ProtocolPage,
-                     SeriesPage, open_folder)
+from .pages2 import (ComparePage, GeometryAnimationPage, OptimizePage,
+                     ProtocolPage, SeriesPage, open_folder)
 from .sidebar import Sidebar
 from .theme import SANS, c, pal
 from .widgets import (Canvas, Flow, Table, Tooltip, tabs, button, caps, entry, font, label,
@@ -55,8 +55,8 @@ def _fmt_time(sec):
     return "%.1f ч" % (sec / 3600)
 
 
-PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage, GeometryPage,
-         SeriesPage, OptimizePage, ComparePage, GridCheckPage, ProtocolPage]
+PAGES = [FieldsPage, ProfilesPage, ConvergencePage, AnimationPage,
+         GeometryAnimationPage, GeometryPage, SeriesPage, OptimizePage, ComparePage, ProtocolPage]
 
 
 def main_thread_gc():
@@ -93,7 +93,7 @@ class App(ctk.CTk):
         self.results = None
         self.variant_idx = 0
         self.runs = []
-        self.series = self.opt = self.gridcheck = None
+        self.series = self.opt = None
         self.gridstudy = None
         self.preview, self.preview_msgs = None, []
         self.outdir = tk.StringVar(value=self.cfg.get("outdir")
@@ -501,8 +501,6 @@ class App(ctk.CTk):
         v = r.variants[0]
         if v.diverged or v.settled is not False:
             return None
-        if int(getattr(r.params, "UNSTEADY", 0)):
-            return None         # нестационарный - только новый расчёт
         return v
 
     def _gc_tick(self):
@@ -541,11 +539,9 @@ class App(ctk.CTk):
 
         def job(progress, cancel):
             def prog(nvar, nvarm, niter, nmax):
-                what = "шаг по времени" if prm.UNSTEADY and \
-                    nmax != prm.NMAX else "итерация"
                 progress(((nvar - 1) + niter / nmax) / nvarm,
-                         "вариант %d/%d · %s %d/%d" % (nvar, nvarm, what,
-                                                      niter, nmax))
+                         "вариант %d/%d · итерация %d/%d" %
+                         (nvar, nvarm, niter, nmax))
             res = Solver(prm, progress=prog, cancel=cancel,
                          snapshot_every=snap, keep_partial=True,
                          resume=resume).run()
@@ -592,8 +588,7 @@ class App(ctk.CTk):
         cost = getattr(self.sidebar, "_node_cost", None)
         if not est or not cost:
             return True
-        extra = self.sidebar._unsteady_iters()[1] if prm.UNSTEADY else 0
-        n = (min(est["n_req"], prm.NMAX) + extra) * prm.NVARM
+        n = min(est["n_req"], prm.NMAX) * prm.NVARM
         sec = n * prm.IN * prm.JN * cost
         if sec < 120:
             return True
@@ -615,12 +610,12 @@ class App(ctk.CTk):
             filetypes=[("Документ Word", "*.docx")])
         if not path:
             return
-        res, series, opt, gc = self.results, self.series, self.opt, self.gridcheck
+        res, series, opt = self.results, self.series, self.opt
 
         def job(progress, cancel):
             from .. import report
             progress(0.3, "Отчёт: построение рисунков…")
-            return report.build(path, res, series=series, opt=opt, gridcheck=gc)
+            return report.build(path, res, series=series, opt=opt)
 
         self.run_task(job, lambda p: self.status("Отчёт сохранён: " + p),
                       "Отчёт Word")

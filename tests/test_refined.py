@@ -5,9 +5,9 @@ import pytest
 from metan import Params, Solver, studies
 
 
-@pytest.mark.parametrize("comb,turb", [(1, 0), (0, 0)])
-def test_models_run(comb, turb):
-    p = Params(COMB=comb, TURB=turb, NMAX=120)
+@pytest.mark.parametrize("comb", [1, 0])
+def test_models_run(comb):
+    p = Params(COMB=comb, NMAX=120)
     v = Solver(p, track_history=False).run().variants[0]
     assert not v.diverged
     assert 0.0 <= v.fkomp <= 1.0 + 1e-9
@@ -16,10 +16,10 @@ def test_models_run(comb, turb):
 
 
 def test_base_unchanged_by_refined_code():
-    """COMB = 0, TURB = 0 - точно основная программа."""
+    """COMB = 0 - точно основная программа."""
     p = Params(NMAX=200)
     a = Solver(p).run().variants[0]
-    b = Solver(Params(NMAX=200, COMB=0, TURB=0, EDM_A=2.0)).run().variants[0]
+    b = Solver(Params(NMAX=200, COMB=0, EDM_A=2.0)).run().variants[0]
     assert np.array_equal(a.A, b.A)
 
 
@@ -29,15 +29,12 @@ def test_edm_settles_and_burns_less():
     assert 0.6 < v.fkomp < 0.9
 
 
-def test_unsteady_run():
-    """Нестационарный расчёт: установление, шаги по времени, осреднение."""
-    p = Params(UNSTEADY=1, T_AVG=1.0, DT_STEPS=40, INNER=20, NMAX=600)
-    v = Solver(p).run().variants[0]
-    u = v.extra["unsteady"]
-    assert not v.diverged
-    assert u["steps"] == 120 and u["averaged_steps"] == 40
-    assert 0.5 < v.fkomp <= 1.0 and 0.3e-3 < u["tau"] < 2e-3
-    assert "k–ε" in v.extra["model"]
+def test_old_unsteady_params_load_as_steady_edm():
+    p = Params.from_dict({
+        "UNSTEADY": 1, "COMB": 0, "T_AVG": 1.0, "DT_STEPS": 40, "INNER": 20,
+    })
+    assert p.COMB == 1
+    assert "UNSTEADY" not in p.to_dict()
 
 
 def test_old_param_files():

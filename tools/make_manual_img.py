@@ -170,10 +170,6 @@ def main():
     app.run()
     wait(app)
 
-    app.show_page("Сетка ×2")
-    app.page.run()
-    wait(app)
-    shot("big_Сетка.jpg")
     app.show_page("Файлы .dat")
     pump(app)
     shot("big_Файлы_dat.jpg")

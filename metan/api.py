@@ -62,13 +62,6 @@ def run(params=None, progress=None, cancel=None):
                                  if k != "T"},
             iterations=int(v.NITER), settled=v.settled,
             diverged=bool(v.diverged))
-        u = v.extra.get("unsteady")
-        if u is not None:
-            row["unsteady"] = dict(
-                residence_time_s=_num(u["tau"]), dt_s=_num(u["dt"]),
-                steps=int(u["steps"]), phi_k_std=_num(u["fk_std"]),
-                phi_k_t=[_num(x) for x in u["fk_t"]],
-                t_s=[_num(x) for x in u["t"]])
         out["variants"].append(row)
     return out
 

@@ -9,7 +9,7 @@ from matplotlib.figure import Figure
 from . import __version__
 from . import notation, plotting
 from .analysis import exit_summary
-from .refined import COMB_NAMES, TURB_NAMES, models, temperature_mode
+from .refined import COMB_NAMES, temperature_mode
 from .kernels import NF, NT
 from .params import Params
 
@@ -90,8 +90,8 @@ def _fmt(x, nd=4):
     return "%.*g" % (nd + 1, x)
 
 
-def build(path, results, series=None, opt=None, gridcheck=None, title=None):
-    """Собрать отчёт. results - Results; series/opt/gridcheck - необязательно."""
+def build(path, results, series=None, opt=None, title=None):
+    """Собрать отчёт. results - Results; series/opt - необязательно."""
     d = _Doc()
     p = results.params
     d.doc.add_heading(title or "Расчёт горения метана в камере сгорания", 0)
@@ -108,11 +108,7 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
             continue
         if name == "TSMOOTH" and temperature_mode(p) != 1:
             continue
-        if name == "TURB":
-            continue
-        if name == "EDM_A" and models(p)[0] != 1:
-            continue
-        if name == "T_AVG" and not p.UNSTEADY:
+        if name == "EDM_A" and p.COMB != 1:
             continue
         rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
     rows.append(("Модель температуры", "", {
@@ -120,11 +116,9 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         2: "равновесная (термодинамический расчёт)",
         3: "равновесная × доля сгоревшего (задаётся моделью EDM)"}.get(
             temperature_mode(p), "?"), ""))
-    comb, turb = models(p)
-    rows.append(("Расчёт", "", "нестационарный (осреднение по времени)"
-                 if p.UNSTEADY else "стационарный", ""))
-    rows.append(("Модель горения", "", COMB_NAMES[comb], ""))
-    rows.append(("Модель турбулентности", "", TURB_NAMES[turb], ""))
+    rows.append(("Расчёт", "", "стационарный", ""))
+    rows.append(("Модель горения", "", COMB_NAMES[p.COMB], ""))
+    rows.append(("Модель турбулентности", "", "алгебраическая", ""))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
 
@@ -201,30 +195,5 @@ def build(path, results, series=None, opt=None, gridcheck=None, title=None):
         d.table("Результат подбора", ["Параметр", "Было", "Стало"],
                 [(notation.sym(nm), _fmt(a), _fmt(b)) for nm, a, b in
                  zip(opt.names, opt.start_x, opt.best_x)])
-    if gridcheck is not None:
-        d.h("%d. Проверка сеточной сходимости" % n)
-        ps = [gridcheck.base_params, gridcheck.fine_params] + \
-            ([gridcheck.finer_params] if gridcheck.finer is not None else [])
-        names = ["%d×%d" % (q.IN, q.JN) for q in ps]
-        d.p("Сетки: %s (каждый интервал разбит на %d части)."
-            % (" → ".join(names), gridcheck.factor))
-        rows_g = gridcheck.gci()
-        if rows_g:
-            kinds = {"monotone": "сходится", "oscillating": "колеблется",
-                     "diverging": "сетки грубые", "converged": "не зависит"}
-            d.table("Индекс сеточной сходимости GCI",
-                    ["α", "Величина"] + names + ["p", "Предел", "GCI, %",
-                                                 "Вывод"],
-                    [("%.2f" % r["alpha"], r["name"], _fmt(r["f3"]),
-                      _fmt(r["f2"]), _fmt(r["f1"]),
-                      "—" if r["p"] != r["p"] else "%.2f" % r["p"],
-                      "—" if r["ext"] != r["ext"] else _fmt(r["ext"]),
-                      "%.2f" % r["gci"], kinds[r["kind"]]) for r in rows_g])
-        else:
-            d.table("Сравнение результатов на двух сетках",
-                    ["α", "Величина"] + names + ["Отличие, %"],
-                    [("%.2f" % a, nm, _fmt(x), _fmt(y),
-                      "—" if rel != rel else "%.2f" % rel + (" (расх.)" if bad else ""))
-                     for a, nm, x, y, rel, bad in gridcheck.table()])
     d.doc.save(path)
     return path

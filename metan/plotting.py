@@ -316,15 +316,25 @@ def draw_curves(ax, curves, xlabel, ylabel, colors=None):
 
 
 def draw_difference(ax, x, r, D, units_scale=1000.0, label="", cmap="RdBu_r",
-                    colorbar_cb=None):
+                    colorbar_cb=None, *, style="fill", fg="black"):
     """Карта разности полей (симметричная шкала)."""
     vmax = float(np.nanmax(np.abs(np.ma.filled(D, np.nan)))) if np.ma.count(D) else 1.0
     vmax = vmax or 1.0
-    m = ax.pcolormesh(x * units_scale, r * units_scale, D, cmap=cmap,
-                      vmin=-vmax, vmax=vmax, shading="auto")
+    x, r = x * units_scale, r * units_scale
+    m = None
+    if style in ("fill", "both"):
+        m = ax.pcolormesh(x, r, D, cmap=cmap, vmin=-vmax, vmax=vmax,
+                          shading="auto")
+    if style in ("lines", "both") and np.ma.count(D) and np.ma.ptp(D) > 0:
+        levels = np.linspace(-vmax, vmax, 25)[1:-1]
+        lines = ax.contour(x, r, D, levels=levels, colors=fg, linewidths=0.7)
+        if style == "lines":
+            ax.clabel(lines, fmt="%.3g", fontsize=8)
+    ax.set_xlim(x[0], x[-1])
+    ax.set_ylim(r[0], r[-1])
     ax.set_aspect("equal")
     ax.set_xlabel("x, мм")
     ax.set_ylabel("r, мм")
-    if colorbar_cb:
+    if m is not None and colorbar_cb:
         colorbar_cb(m, label)
     return m

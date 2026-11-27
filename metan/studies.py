@@ -20,6 +20,9 @@ OPT_PARAMS = ["DKR", "DCMB", "DOGOR", "DELGOR", "DKAR", "DOOK", "DELOK",
               "DKS", "DELKAR", "ALKS", "TGY"]
 
 
+GEOMETRY_PARAMS = tuple(OPT_PARAMS)
+
+
 def _workers():
     return max(1, min(4, os.cpu_count() or 1))
 
@@ -75,15 +78,36 @@ class SeriesResult:
 def run_series(params, name, values, progress=None, cancel=None):
     """Расчёт при каждом значении параметра name (все варианты α из params).
     progress(done, total); расчёты идут параллельно в несколько потоков."""
+    rows = _run_series(params, name, values, summarize, progress, cancel)
+    return SeriesResult(name=name, values=[value for value, _, _ in rows],
+                        rows=rows)
+
+
+@dataclass
+class GeometrySeriesResult:
+    name: str
+    rows: list           # [(value, VariantResult|None, error)]
+
+
+def run_geometry_series(params, name, values, progress=None, cancel=None):
+    """Сохранить поля для каждого значения геометрического параметра при одном α."""
+    if name not in GEOMETRY_PARAMS:
+        raise ValueError("Выберите геометрический параметр.")
+    params = dataclasses.replace(params, NVARM=1)
+    rows = _run_series(params, name, values, lambda r: r.variants[0],
+                       progress, cancel)
+    return GeometrySeriesResult(name, rows)
+
+
+def _run_series(params, name, values, result, progress, cancel):
     values = list(values)
-    res = SeriesResult(name=name, values=values)
     slots = [None] * len(values)
 
     def one(idx, val):
         try:
             p = with_value(params, name, val)
             r = Solver(p, cancel=cancel, track_history=False).run()
-            return idx, summarize(r), None
+            return idx, result(r), None
         except Cancelled:
             raise
         except Exception as e:  # недопустимая геометрия и т.п.
@@ -98,8 +122,7 @@ def run_series(params, name, values, progress=None, cancel=None):
             done += 1
             if progress:
                 progress(done, len(values))
-    res.rows = slots
-    return res
+    return slots
 
 
 # ----------------------------------------------------------------------
