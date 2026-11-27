@@ -11,6 +11,7 @@ from metan.solver import Solver
 def test_api_run_json_serializable():
     out = api.run({"ALFA": 1.0, "NMAX": 200})
     s = json.dumps(out)
+    assert "phi_beta" not in out["variants"][0]
     assert "phi_k" in s and out["variants"][0]["alpha"] == 1.0
 
 

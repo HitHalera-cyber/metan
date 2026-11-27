@@ -301,9 +301,9 @@ class GeometryAnimationPage(AnimationPage):
                                 (index + 1, len(self.series.rows), error))
             return
         self.info.configure(text=(
-            "Кадр %d/%d   φк = %.4f   φβ = %.4f   Tвых = %.0f K%s" %
+            "Кадр %d/%d   φк = %.4f   Tвых = %.0f K%s" %
             (index + 1, len(self.series.rows), variant.fkomp,
-             variant.extra.get("FIbeta", np.nan), analysis.exit_summary(variant)["T"],
+             analysis.exit_summary(variant)["T"],
              "   ·   решение не установилось" if variant.settled is False else "")))
 
 
@@ -603,7 +603,6 @@ class ComparePage(Page):
             self.plot.show()
         ea, eb = analysis.exit_summary(a), analysis.exit_summary(b)
         rows = [("φк", a.fkomp, b.fkomp),
-                ("φβ", a.extra.get("FIbeta", np.nan), b.extra.get("FIbeta", np.nan)),
                 ("ṁ, кг/с", a.values["Ms"], b.values["Ms"]),
                 ("Tвых, K", ea["T"], eb["T"])]
         rows += [("g%s вых" % n, ea[n], eb[n]) for n in ("CH4", "O2", "CO2")]

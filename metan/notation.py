@@ -10,7 +10,6 @@ from .params import Params
 RESULTS = {
     "fkomp": ("φк", "коэффициент полноты сгорания", ""),
     "eta": ("ηсг", "массовая полнота сгорания", ""),
-    "FIbeta": ("φβ", "коэффициент расходного комплекса (по смешению)", ""),
     "ALFA": ("α", "коэффициент избытка окислителя", ""),
     "KM": ("Km", "массовое соотношение компонентов", ""),
     "BETA": ("β", "расходный комплекс", "м/с"),
@@ -72,7 +71,7 @@ def renames():
                       ("Ms", "Ms"), ("Mok", "Mok"), ("Mgor", "Mgor"),
                       ("Vgor", "Vgor"), ("Vok", "Vok"), ("Vcmw", "Vcmw"),
                       ("ROg", "ROg"), ("ROok", "ROok"), ("NITER", "NITER"),
-                      ("fkomp", "Fkomp"), ("FIbeta", "FIbeta")):
+                      ("fkomp", "Fkomp")):
         s, name, _ = RESULTS[code]
         out.append((ftn, s, name))
     return out

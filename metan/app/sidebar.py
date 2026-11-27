@@ -19,8 +19,7 @@ from .widgets import Canvas, button, check, font, label, option, _scaling
 
 # подписи вариантов в выпадающих списках
 CHOICES = {"NCORD": {"2": "осесимметричная", "1": "плоская"},
-           "TMODEL": {"0": "исходная", "2": "равновесная"},
-           "COMB": {"0": "мгновенная", "1": "EDM"}}
+           "TMODEL": {"0": "исходная", "2": "равновесная"}}
 
 HELP_HINT = ("Щёлкните правой кнопкой мыши по параметру, чтобы увидеть, "
              "что он означает.")
@@ -95,11 +94,6 @@ class Sidebar(ctk.CTkFrame):
                     var=self.snap_var)
             self.sections[key] = (head, body)
         self._multi_toggle()
-        for name in ("TMODEL", "COMB"):
-            if name in self.vars:
-                self.vars[name].trace_add("write",
-                                          lambda *a: self._tmodel_toggle())
-        self._tmodel_toggle()
         self.open_section("mode")
 
         # Справка по параметру (не прокручивается)
@@ -199,7 +193,7 @@ class Sidebar(ctk.CTkFrame):
         if kind:
             names = CHOICES.get(name, {})
             w = option(fr, [names.get(str(x), str(x)) for x in kind],
-                       variable=v, width=(130 if name == "COMB" else 150)
+                       variable=v, width=150
                        if names else 96)
             w.grid(row=0, column=1, sticky="e", pady=3)
         else:
@@ -474,23 +468,6 @@ class Sidebar(ctk.CTkFrame):
         cb.grid(row=r, column=0, sticky="w", padx=6, pady=(2, 4))
         self._multi_rows_at = r + 1
         return r + 1
-
-    def _tmodel_toggle(self):
-        """Ширина сглаживания w - только у сглаженной модели температуры;
-        модель температуры - только при мгновенном горении (иначе её задаёт
-        модель горения); постоянная A - только у EDM."""
-        def show(name, on):
-            if name in self.rows:
-                (self.rows[name].grid if on else self.rows[name].grid_remove)()
-        comb = self.vars["COMB"].get() if "COMB" in self.vars else \
-            CHOICES["COMB"]["0"]
-        instant = comb == CHOICES["COMB"]["0"]
-        show("TMODEL", instant)
-        show("EDM_A", not instant)
-        if getattr(self, "_est", None):
-            self.show_iters()
-        if getattr(self, "_re", None):
-            self.show_reynolds()
 
     def _multi_toggle(self):
         on = self.multi_var.get()

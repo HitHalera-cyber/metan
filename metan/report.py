@@ -9,7 +9,6 @@ from matplotlib.figure import Figure
 from . import __version__
 from . import notation, plotting
 from .analysis import exit_summary
-from .refined import COMB_NAMES, temperature_mode
 from .kernels import NF, NT
 from .params import Params
 
@@ -106,18 +105,14 @@ def build(path, results, series=None, opt=None, title=None):
             continue
         if name in ("DALFA", "NVARM") and p.NVARM == 1:
             continue
-        if name == "TSMOOTH" and temperature_mode(p) != 1:
-            continue
-        if name == "EDM_A" and p.COMB != 1:
+        if name == "TSMOOTH" and p.TMODEL != 1:
             continue
         rows.append((meta["label"], meta["sym"], getattr(p, name), meta["unit"]))
     rows.append(("Модель температуры", "", {
         0: "исходная (как в Фортране)", 1: "сглаженная",
-        2: "равновесная (термодинамический расчёт)",
-        3: "равновесная × доля сгоревшего (задаётся моделью EDM)"}.get(
-            temperature_mode(p), "?"), ""))
+        2: "равновесная (термодинамический расчёт)"}.get(p.TMODEL, "?"), ""))
     rows.append(("Расчёт", "", "стационарный", ""))
-    rows.append(("Модель горения", "", COMB_NAMES[p.COMB], ""))
+    rows.append(("Модель горения", "", "мгновенная", ""))
     rows.append(("Модель турбулентности", "", "алгебраическая", ""))
     d.table("Исходные данные расчёта", ["Параметр", "Обозначение",
                                          "Значение", "Ед."], rows)
@@ -134,12 +129,11 @@ def build(path, results, series=None, opt=None, title=None):
         rows.append((v.NVAR, "%.2f" % val["ALFA"], "%.2f" % val["KM"],
                      _fmt(val["Ms"]), "%.1f" % val["Vgor"], "%.1f" % val["Vok"],
                      v.NITER, "%.5f" % v.fkomp,
-                     "%.4f" % v.extra.get("FIbeta", float("nan")),
                      "%.0f" % ex["T"],
                      "расходимость" if v.diverged else "сошёлся"))
     d.table("Основные результаты",
             ["№", "α", "Km", "ṁ, кг/с", "wг, м/с", "wок, м/с", "N",
-             "φк", "φβ", "Tвых, K", "Статус"], rows)
+             "φк", "Tвых, K", "Статус"], rows)
     if len(results.variants) > 1:
         xs = [v.values["ALFA"] for v in results.variants]
         ys = [v.fkomp for v in results.variants]

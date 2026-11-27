@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from . import kernels as K
-from . import refined
 from .fortran_format import fmt_e, fmt_f, fmt_i
 from .kernels import (NW, NF, NMFU1, NMOX1, NMPR1, NMPR2, NMDF, NMOX2,
                       NMFU2, NMU1, NRO3, NT, NV1, NMU2, N3)
@@ -114,7 +113,6 @@ class Solver:
         self.keep_partial = keep_partial
         self.resume = resume
         self._stopped = False
-        self._ref = None
         self._resume_ok = False
         self.F = np.float32 if self.p.precision == "float32" else np.float64
 
@@ -411,7 +409,7 @@ class Solver:
                 A[I, J, NF] = A[IC2, J, NF]
 
     # ------------------------------------------------------------------
-    def _sweep(self, tmode, react, ref):
+    def _sweep(self, tmode):
         """Одна стационарная итерация."""
         p = self.p
         K.viscos(self.A, self.X1, self.R, self.IMIN, self.IMAX, self.PKS,
@@ -419,8 +417,6 @@ class Solver:
                  self.JA2, self.JA3, self.JC, self.IC1, self.IC2,
                  self.VINP, self.VINS, self.ROP, self.ROS, self.VINS1,
                  tmode, float(p.TSMOOTH), *self._ttab)
-        if ref is not None:
-            ref.after_viscos()
         self.NITER = K.veldis(self.A, self.X1, self.X2, self.R, self.IMIN,
                               self.IMAX, self.VS, self.FKS, self.UKS,
                               self.INM, self.JNM, self.JA3, self.JC,
@@ -439,9 +435,7 @@ class Solver:
               self.JA2, self.JA3, self.JB, self.JB1, self.JC, self.JC1,
               self.JZ, self.JZ1, self.IC, self.IC1, self.IC2,
               self.NITER, p.NPRINT, self.NVAR, self.NCORD, self.ROM1,
-              self.IC2 + 1, float(p.OMEGA), react)
-        if ref is not None:
-            ref.after_eqn()
+              self.IC2 + 1, float(p.OMEGA))
 
     def _iterate(self):
         """Итерационный цикл варианта (метка 1 в RK2.FOR)."""
@@ -462,10 +456,7 @@ class Solver:
         # к максимуму поля) меньше STOP_TOL 20 итераций подряд. NMAX - предел.
         snap_step = self._snapshot_step()
         self._ttab = self._temperature_table()
-        tmode = refined.temperature_mode(p)
-        ref = refined.Refined(self) if p.COMB else None
-        self._ref = ref
-        react = int(ref is None)
+        tmode = p.TMODEL
         tol = float(p.STOP_TOL)
         self._settled = None
         if tol > 0:
@@ -476,7 +467,7 @@ class Solver:
             calm = 0
         while True:
             self.NITER += 1
-            self._sweep(tmode, react, ref)
+            self._sweep(tmode)
             if self.track_history:
                 self._record(prev)
             if (snap_step and self.NITER <= p.NMAX
@@ -521,7 +512,7 @@ class Solver:
         """Таблица равновесной температуры T(f) для TMODEL = 2 (по давлению в
         камере и энтальпии горючего; строится один раз, ~1 с)."""
         p = self.p
-        if refined.temperature_mode(p) not in (2, 3):
+        if p.TMODEL != 2:
             z = np.zeros(2)
             return (z, z + 1., z)
         from . import thermo as _th
@@ -765,14 +756,12 @@ class Solver:
         out.append(line)
 
         self._iterate()
-        if self._ref is not None:
-            self._ref.end()
         out.append(" " * 25 + "NITER=" + fmt_i(self.NITER, 4))
 
         if self.p.model == "original":
-            fk, kind, FICM, extra = self._coefs_original(ALFA, AMG, AMO2, BETA)
+            fk, kind, extra = self._coefs_original(ALFA, AMG, AMO2)
         else:
-            fk, kind, FICM, extra = self._coefs_corrected(ALFA, AMG, AMO2, BETA)
+            fk, kind, extra = self._coefs_corrected(AMG, AMO2)
         if kind == "GOR":
             out.append(" ************* KOEF Fkomp (GOR) =" + fmt_f(fk, 8, 5)
                        + " **********")
@@ -788,7 +777,7 @@ class Solver:
         FIOP = FIOP * 3.1416 * 2.
         FIOS = FIOS * 3.1416 * 2.
         DOP = FIOS / FIOP
-        extra.update(FIbeta=float(FICM), FIOP=float(FIOP), FIOS=float(FIOS),
+        extra.update(FIOP=float(FIOP), FIOS=float(FIOS),
                      DOP=float(DOP))
 
         values = dict(P=float(P), ALFA=float(ALFA), KM=float(AKM),
@@ -809,30 +798,11 @@ class Solver:
             stopped=self._stopped,
             history={k: np.asarray(v) for k, v in self._hist.items()},
             snapshots=self._snaps))
-        if self._ref is not None:
-            v = res.variants[-1]
-            v.extra["averaged"] = self._ref.averaged
-            v.extra["model"] = refined.describe(self.p)
 
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _beta(a, c=2154.733):
-        """Расходный комплекс BETA(ALFA), аппроксимация из RK2.FOR."""
-        b = 0.
-        if a <= 1.:
-            b = 1794. + 491.252 * a - 475.9317 * a ** 2
-        if a > 1.:
-            b = c - 402.252 * a + 54.1698 * a ** 2
-        if a < 0.6:
-            b = 1917. - 2500. * (0.6 - a)
-        if b < 600.:
-            b = 600.
-        return b
-
-    def _coefs_original(self, ALFA, AMG, AMO2, BETA):
-        """Fkomp и FIbeta точно как в RK2.FOR (метки 1000 и 29)."""
+    def _coefs_original(self, ALFA, AMG, AMO2):
+        """Fkomp точно как в RK2.FOR (метка 1000)."""
         F = self.F
-        A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
+        A, IN, JC = self.A, self.IN, self.JC
         JZ, JZ1, JA = self.JZ, self.JZ1, self.JA
         # 1000: коэффициент полноты сгорания
         JC17 = JC - 1
@@ -866,46 +836,16 @@ class Solver:
             fk = (1. - abs(ZGCP)) ** 0.5
             kind = "OK"
 
-        # 29: FIbeta - расчётный комплекс по выходному сечению
-        Z = F(0.)
-        BETAJ = F(0.)
-        for J in range(2, JC + 1):
-            IL = INM
-            ZO = (A[IL, J - 1, NMOX1] + 4.27 * A[IL, J - 1, NMPR1]
-                  + 3.35 * A[IL, J - 1, NMOX2] + 376. * A[IL, J - 1, NMDF]
-                  + 2.785 * A[IL, J - 1, NMPR2] + 2.765 * A[IL, J - 1, NMFU2])
-            ZG = (A[IL, J - 1, NMFU1] + 1.09 * A[IL, J - 1, NMPR1]
-                  + 0.857 * A[IL, J - 1, NMOX2] + 96. * A[IL, J - 1, NMDF]
-                  + 0.711 * A[IL, J - 1, NMPR2] + 0.706 * A[IL, J - 1, NMFU2])
-            ALFAJ = ZO / ZG / 3.9166
-            if ALFAJ <= 1.:
-                BETAJ = 1794. + 491.252 * ALFAJ - 475.9317 * ALFAJ ** 2
-            if ALFAJ > 1.:
-                BETAJ = 2154. - 402.252 * ALFAJ + 54.1698 * ALFAJ ** 2
-            if ALFAJ < 0.6:
-                BETAJ = 1917. - 2500. * (0.6 - ALFAJ)
-            if BETAJ < 600.:
-                BETAJ = F(600.)
-            ZF = (A[IL, J, NF] - A[IL, J - 1, NF]) / (A[IL, JC, NF] - A[IL, 1, NF])
-            Z = Z + BETAJ * ZF
-        FICM = Z / BETA
-        return fk, kind, FICM, extra
+        return fk, kind, extra
 
-    def _coefs_corrected(self, ALFA, AMG, AMO2, BETA):
-        """Fkomp и FIbeta, правильные при любом ALFA.
+    def _coefs_corrected(self, AMG, AMO2):
+        """Fkomp при любом ALFA.
 
         Fkomp = sqrt(eta), eta = (CH4 на входе - CH4 на выходе) / CH4, которое
         может сгореть. Глобальная реакция модели (24 CH4 + 47 O2) расходует
         3.9166 кг O2 на 1 кг CH4, поэтому сгореть может min(Mgor, Mok/3.9166).
         В оригинале при ALFA <= 1 избыток горючего считался по K0 = 4, а при
         ALFA > 1 - по расходу через функцию тока с поправкой 0.013833.
-
-        FIbeta = (среднерасходное BETA(alfa_j)) / BETA(ALFA). Местный alfa_j
-        по элементному составу: продукты делятся на окислитель/горючее как
-        0.7966/0.2034 (как в VISCOS); K0 = 4, как в KM = 4*ALFA. В оригинале
-        каждый из пяти продуктов пересчитывался как вся смесь продуктов, т.е.
-        продукты учитывались впятеро, и местный alfa_j тянулся к 1 - отсюда
-        FIbeta > 1 при ALFA > 1.
         """
         A, IN, INM, JC = self.A, self.IN, self.INM, self.JC
         extra = {}
@@ -923,26 +863,20 @@ class Solver:
         kind = "GOR" if burnable >= gin else "OK"
         extra["eta"] = float(eta)
         extra["Gout"] = float(G)
-        # FIbeta
+        # Средневзвешенный по расходу α на выходе
         IL = INM
         prod = (A[IL, 1:JC + 1, NMPR1] + A[IL, 1:JC + 1, NMOX2]
                 + A[IL, 1:JC + 1, NMDF] + A[IL, 1:JC + 1, NMPR2]
                 + A[IL, 1:JC + 1, NMFU2])
         zo = A[IL, 1:JC + 1, NMOX1] + 0.7966 * prod
         zg = np.maximum(A[IL, 1:JC + 1, NMFU1] + 0.2034 * prod, 1e-12)
-        aj = zo / zg / 4.
-        bj = np.array([self._beta(float(x)) for x in aj])
         fj = zg / (zo + zg)                 # доля "горючих" элементов
         dpsi = np.diff(A[IL, 1:JC + 1, NF])
         tot = dpsi.sum()
-        if tot == 0:
-            return fk, kind, 0., extra
-        bmean = float(((bj[1:] + bj[:-1]) / 2. * dpsi).sum() / tot)
-        fmean = float(((fj[1:] + fj[:-1]) / 2. * dpsi).sum() / tot)
-        a_exit = (1. - fmean) / fmean / 4.
-        extra["ALFAexit"] = float(a_exit)
-        FICM = bmean / BETA
-        return fk, kind, FICM, extra
+        if tot != 0:
+            fmean = float(((fj[1:] + fj[:-1]) / 2. * dpsi).sum() / tot)
+            extra["ALFAexit"] = (1. - fmean) / fmean / 4.
+        return fk, kind, extra
 
     def _print1(self, out):
         """SUBROUTINE PRINT1 (RK7.FOR): поля K=1..4 и координаты в shi20.dat."""
